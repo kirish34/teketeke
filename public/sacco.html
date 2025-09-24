@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SACCO Login Roles</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #eef;
+      text-align: center;
+      padding-top: 60px;
+    }
+    h2 {
+      margin-bottom: 30px;
+    }
+    .role-btn {
+      display: block;
+      margin: 10px auto;
+      padding: 12px 24px;
+      font-size: 16px;
+      width: 250px;
+      border: none;
+      border-radius: 6px;
+      background-color: #007BFF;
+      color: white;
+      cursor: pointer;
+    }
+    .role-btn:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h2>Select Your Role</h2>
+
+  <button class="role-btn" onclick="window.location.href='/sacco/sacco-superadmin-login.html'">🧑‍💼 Super Admin</button>
+  <button class="role-btn" onclick="window.location.href='/sacco/sacco-admin.html'">🏢 SACCO</button>
+  <button class="role-btn" onclick="window.location.href='/sacco/sacco-staff-login.html'">👔 SACCO Staff</button>
+  <button class="role-btn" onclick="window.location.href='/sacco/matatu-owner-login.html'">🚐 Matatu Owner</button>
+  <button class="role-btn" onclick="window.location.href='/sacco/conductor-login.html'">👷 Conductor</button>
+</body>
+</html>

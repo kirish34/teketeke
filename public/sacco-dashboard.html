@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SACCO Dashboard – TekeTeke</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      padding: 20px;
+    }
+    h2 { color: #1976d2; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab {
+      padding: 10px 15px;
+      background: #1976d2;
+      color: white;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .tab.active { background: #135ba1; }
+    .panel {
+      display: none;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+    .panel.active { display: block; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #1976d2;
+      color: white;
+    }
+    input, select, button {
+      margin: 5px 5px 5px 0;
+      padding: 8px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .chart-box { margin-top: 30px; }
+  </style>
+</head>
+<body>
+<h2>SACCO Dashboard – TekeTeke</h2>
+<div class="tabs">
+  <div class="tab active" onclick="showPanel('matatus')">Matatus</div>
+  <div class="tab" onclick="showPanel('fees')">Fee Collection</div>
+  <div class="tab" onclick="showPanel('savings')">Savings</div>
+  <div class="tab" onclick="showPanel('loans')">Loans</div>
+  <div class="tab" onclick="showPanel('transactions')">Transactions</div>
+</div>
+
+<div id="matatus" class="panel active">
+  <h3>Matatus in SACCO</h3>
+  <select id="matatuDropdown"></select>
+  <input type="text" id="searchMatatu" placeholder="Search Matatu...">
+  <div id="matatuList"></div>
+</div>
+
+<div id="fees" class="panel">
+  <h3>Daily Fee Settings</h3>
+  <input type="text" id="matatuId" placeholder="Matatu Numberplate">
+  <input type="number" id="dailyFeeAmount" placeholder="Daily Fee (KES)">
+  <button onclick="addFeeSettings()">Save</button>
+</div>
+
+<div id="savings" class="panel">
+  <h3>Savings Settings</h3>
+  <input type="text" id="savingMatatuId" placeholder="Matatu Numberplate">
+  <input type="number" id="dailySavingAmount" placeholder="Daily Saving Amount (KES)">
+  <button onclick="addSavingSettings()">Save</button>
+</div>
+
+<div id="loans" class="panel">
+  <h3>🚘 Matatu Loan Applications & Tracking</h3>
+  <h4>Apply New Loan</h4>
+  <input type="text" id="loanMatatuCode" placeholder="Matatu Numberplate">
+  <input type="number" id="loanAmount" placeholder="Loan Amount (KES)">
+  <select id="loanPurpose">
+    <option value="">-- Select Loan Purpose --</option>
+    <option value="vehicle_purchase">Vehicle Purchase</option>
+    <option value="repair_maintenance">Repair & Maintenance</option>
+    <option value="insurance_tlb">Insurance / TLB Renewal</option>
+    <option value="fuel_route">Fuel & Route Setup</option>
+  </select>
+  <button onclick="submitLoan()">Submit Loan Application</button>
+  <hr style="margin: 30px 0;">
+  <h4>📊 Active Loans</h4>
+  <table><thead><tr><th>Matatu</th><th>Purpose</th><th>Amount</th><th>Issued</th><th>Due</th><th>Status</th></tr></thead>
+    <tbody id="loanList"></tbody>
+  </table>
+</div>
+
+<div id="transactions" class="panel">
+  <h3>Transactions</h3>
+  <label>Date:</label>
+  <input type="date" id="dateFilter">
+  <label>Status:</label>
+  <select id="statusFilter">
+    <option value="">All</option>
+    <option value="daily">Daily</option>
+    <option value="savings">Savings</option>
+  </select>
+  <button onclick="exportToCSV()">Export to CSV</button>
+  <table id="deductionsTable"><thead><tr><th>Matatu</th><th>Amount</th><th>Date</th><th>Type</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="chart-box">
+    <canvas id="feeChart" width="400" height="200"></canvas>
+  </div>
+</div>
+
+<script>
+  const supabase = window.supabase.createClient(
+    'https://chdqapsfrznipmvuzucb.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNoZHFhcHNmcnpuaXBtdnV6dWNiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTQ4MjY3NywiZXhwIjoyMDY1MDU4Njc3fQ.Uem6HAQ1HEjxhdBUGRYsuyeQjxyTOST9Z2VTtWrbhbU'
+  );
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    await loadMatatus();
+    await loadLoans();
+    await loadDeductionsLog();
+  });
+
+  function showPanel(id) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    document.querySelector(`.tab[onclick*="${id}"]`).classList.add('active');
+  }
+
+  async function addFeeSettings() {
+    const data = {
+      matatu: document.getElementById("matatuId").value,
+      amount: Number(document.getElementById("dailyFeeAmount").value),
+      date: new Date().toISOString().split("T")[0],
+      type: 'daily'
+    };
+    const { error } = await supabase.from('sacco_tx_fees').insert([data]);
+    alert(error ? '❌ Error: ' + error.message : '✅ Fee saved');
+  }
+
+  async function addSavingSettings() {
+    const data = {
+      matatu: document.getElementById("savingMatatuId").value,
+      amount: Number(document.getElementById("dailySavingAmount").value),
+      date: new Date().toISOString().split("T")[0],
+      type: 'savings'
+    };
+    const { error } = await supabase.from('sacco_tx_fees').insert([data]);
+    alert(error ? '❌ Error: ' + error.message : '✅ Saving saved');
+  }
+
+  async function submitLoan() {
+    const data = {
+      matatu: document.getElementById("loanMatatuCode").value,
+      loantype: document.getElementById("loanPurpose").value,
+      amount: Number(document.getElementById("loanAmount").value),
+      dateissued: new Date().toISOString().split("T")[0],
+      repaymentdue: '',
+      status: 'Pending'
+    };
+    if (!data.matatu || !data.amount || !data.loantype) {
+      alert("⚠️ Please fill all loan fields before submitting.");
+      return;
+    }
+    const { error } = await supabase.from('sacco_tx_loans').insert([data]);
+    alert(error ? '❌ Error: ' + error.message : '✅ Loan submitted!');
+    loadLoans();
+  }
+
+  async function loadMatatus() {
+    const { data: matatus, error } = await supabase.from('matatus').select('*');
+    const container = document.getElementById("matatuList");
+    const dropdown = document.getElementById("matatuDropdown");
+    container.innerHTML = "";
+    dropdown.innerHTML = "<option value=''>-- Select Matatu --</option>";
+    if (error) {
+      container.innerHTML = `<p style='color:red;'>Failed to load matatus: ${error.message}</p>`;
+      return;
+    }
+    matatus.forEach(m => {
+      container.innerHTML += `
+        <div style="border:1px solid #ccc; border-radius:6px; padding:12px; margin-bottom:10px;">
+          <strong>${m.numberplate}</strong> (${m.vehicletype})<br>
+          Owner: ${m.ownername} | Till: ${m.till}<br>
+          Contact: ${m.contact}<br>
+          <button onclick="editMatatu('${m.id}')">Edit</button>
+          <button onclick="deleteMatatu('${m.id}')" style="background:red;color:white;margin-left:10px;">Delete</button>
+        </div>`;
+      const opt = document.createElement('option');
+      opt.value = m.numberplate;
+      opt.textContent = m.numberplate;
+      dropdown.appendChild(opt);
+    });
+  }
+
+  async function editMatatu(id) {
+    const { data, error } = await supabase.from('matatus').select('*').eq('id', id).single();
+    if (error || !data) return alert('Matatu not found.');
+    const newOwner = prompt("Edit owner name:", data.ownername);
+    const newContact = prompt("Edit contact:", data.contact);
+    const newTill = prompt("Edit till:", data.till);
+    if (!newOwner || !newContact || !newTill) return;
+    await supabase.from('matatus').update({ ownername: newOwner, contact: newContact, till: newTill }).eq('id', id);
+    loadMatatus();
+  }
+
+  async function deleteMatatu(id) {
+    if (!confirm("Are you sure you want to delete this matatu?")) return;
+    await supabase.from('matatus').delete().eq('id', id);
+    loadMatatus();
+  }
+
+  async function loadLoans() {
+    const { data: loans } = await supabase.from('sacco_tx_loans').select('*');
+    const tbody = document.getElementById("loanList");
+    tbody.innerHTML = "";
+    loans.forEach(loan => {
+      const row = `<tr><td>${loan.matatu}</td><td>${formatPurpose(loan.loantype)}</td><td>${loan.amount}</td><td>${loan.dateissued}</td><td>${loan.repaymentdue || '-'}</td><td>${loan.status}</td></tr>`;
+      tbody.innerHTML += row;
+    });
+  }
+
+  function formatPurpose(code) {
+    switch(code) {
+      case 'vehicle_purchase': return 'Vehicle Purchase';
+      case 'repair_maintenance': return 'Repair & Maintenance';
+      case 'insurance_tlb': return 'Insurance / TLB Renewal';
+      case 'fuel_route': return 'Fuel & Route Setup';
+      default: return code;
+    }
+  }
+
+  async function loadDeductionsLog() {
+    const selectedDate = document.getElementById("dateFilter").value;
+    const selectedType = document.getElementById("statusFilter").value;
+    let query = supabase.from('sacco_tx_fees').select('*');
+    if (selectedDate) query = query.eq('date', selectedDate);
+    if (selectedType) query = query.eq('type', selectedType);
+    const { data } = await query;
+    const tbody = document.querySelector("#deductionsTable tbody");
+    tbody.innerHTML = "";
+    const labels = [], amounts = [];
+    data.forEach(log => {
+      const row = `<tr><td>${log.matatu}</td><td>${log.amount}</td><td>${log.date}</td><td>${log.type}</td></tr>`;
+      tbody.innerHTML += row;
+      labels.push(log.date);
+      amounts.push(log.amount);
+    });
+    new Chart(document.getElementById('feeChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Collected Amounts',
+          data: amounts,
+          borderColor: '#1976d2',
+          fill: false
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+
+  function exportToCSV() {
+    const rows = document.querySelectorAll("#deductionsTable tr");
+    let csv = "";
+    rows.forEach(row => {
+      const cols = row.querySelectorAll("td, th");
+      const rowData = Array.from(cols).map(col => col.innerText);
+      csv += rowData.join(",") + "\n";
+    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'deductions.csv';
+    link.click();
+  }
+
+  document.getElementById("dateFilter").addEventListener("change", loadDeductionsLog);
+  document.getElementById("statusFilter").addEventListener("change", loadDeductionsLog);
+</script>
+</body>
+</html>
