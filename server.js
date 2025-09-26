@@ -1,4 +1,4 @@
-// server.js (CommonJS, complete, dashboards-ready)
+// server.js (CommonJS, dashboards-ready)
 // npm i express cors morgan @supabase/supabase-js
 require('dotenv').config();
 const express = require('express');
@@ -12,8 +12,11 @@ const {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE,
-  ADMIN_TOKEN = 'changeme_admin_token'
+  ADMIN_TOKEN = 'changeme_admin_token',
+  DEV_AUTOPAY = 'true', // set to 'false' in production
 } = process.env;
+
+const DEV_AUTOPAY_ON = DEV_AUTOPAY === 'true' || NODE_ENV !== 'production';
 
 // ---- Supabase clients ----
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
@@ -103,7 +106,11 @@ app.post('/api/admin/register-sacco', requireAdmin, async (req, res) => {
   try {
     const { name, contact_name, contact_phone, contact_email, default_till } = req.body || {};
     if (!name) return res.status(400).json({ success: false, error: 'name required' });
-    const { data, error } = await sbAdmin.from('saccos').insert([{ name, contact_name, contact_phone, contact_email, default_till }]).select().single();
+    const { data, error } = await sbAdmin
+      .from('saccos')
+      .insert([{ name, contact_name, contact_phone, contact_email, default_till }])
+      .select()
+      .single();
     if (error) throw error;
     await sbAdmin.from('sacco_settings').upsert({ sacco_id: data.id }).eq('sacco_id', data.id);
     res.json({ success: true, id: data.id });
@@ -132,7 +139,11 @@ app.post('/api/admin/register-matatu', requireAdmin, async (req, res) => {
   try {
     const { sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number } = req.body || {};
     if (!sacco_id || !number_plate) return res.status(400).json({ success: false, error: 'sacco_id & number_plate required' });
-    const { data, error } = await sbAdmin.from('matatus').insert([{ sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number }]).select().single();
+    const { data, error } = await sbAdmin
+      .from('matatus')
+      .insert([{ sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number }])
+      .select()
+      .single();
     if (error) throw error;
     res.json({ success: true, id: data.id });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -354,34 +365,66 @@ async function handleMpesaCallback(payload) {
   if (ledErr) throw ledErr;
 }
 
+// >>> REPLACED: status with dev auto-settle <<<
 app.get('/api/cashier/status/:id', async (req, res) => {
   try {
     const key = req.params.id;
-    let { data, error } = await sb.from('transactions').select('status').eq('id', key).maybeSingle();
-    if (!data) {
-      const r = await sb.from('transactions').select('status').eq('mpesa_checkout_id', key).maybeSingle();
-      data = r.data; error = r.error;
+
+    // try by primary id first, then by checkout id
+    let { data: tx, error } = await sb
+      .from('transactions')
+      .select('id, status, created_at')
+      .eq('id', key)
+      .maybeSingle();
+
+    if (!tx) {
+      const r = await sb
+        .from('transactions')
+        .select('id, status, created_at')
+        .eq('mpesa_checkout_id', key)
+        .maybeSingle();
+      tx = r.data; error = r.error;
     }
-    if (error) throw error;
-    const status = data?.status || 'PENDING';
-    res.json({ final: ['SUCCESS','FAILED','TIMEOUT'].includes(status), status });
-  } catch (err) { res.status(200).json({ final: true, status: 'FAILED', error: err.message }); }
+    if (error || !tx) return res.status(404).json({ final: true, status: 'FAILED', error: 'not found' });
+
+    // DEV AUTO-PAY: if still pending and older than ~3s, mark SUCCESS
+    if (DEV_AUTOPAY_ON && (tx.status === 'PENDING' || tx.status === 'Pending')) {
+      const ageMs = Date.now() - new Date(tx.created_at).getTime();
+      if (ageMs > 3000) {
+        await sbAdmin.from('transactions').update({ status: 'SUCCESS' }).eq('id', tx.id);
+        tx.status = 'SUCCESS';
+      }
+    }
+
+    const status = tx.status || 'PENDING';
+    const final = ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(status);
+    res.json({ final, status, checkout_id: key });
+  } catch (err) {
+    res.status(200).json({ final: true, status: 'FAILED', error: err.message });
+  }
 });
 
 /* =======================================================================
    MATATU STAFF VIEW: last payments by till (public read)
    =======================================================================*/
+// >>> REPLACED: return [] when till not set (quiet logs)
 app.get('/api/matatu/payments', async (req, res) => {
   try {
     const tillRaw = (req.query.till ?? '').toString().trim();
     const till = tillRaw.toLowerCase();
+
+    // If page hasn't saved a till yet, just return an empty list (no 400 spam)
     if (!tillRaw || till === 'null' || till === 'undefined') {
-      return res.status(400).json({ error: 'till required (e.g. /api/matatu/payments?till=987654)' });
+      return res.json([]);
     }
 
-    const { data: m, error: mErr } = await sb.from('matatus').select('id').eq('till_number', tillRaw).maybeSingle();
+    const { data: m, error: mErr } = await sb
+      .from('matatus')
+      .select('id')
+      .eq('till_number', tillRaw)
+      .maybeSingle();
     if (mErr) throw mErr;
-    if (!m) return res.json([]); // no such till -> empty list
+    if (!m) return res.json([]); // unknown till
 
     const { data: txs, error: tErr } = await sb
       .from('transactions')
@@ -404,7 +447,7 @@ app.get('/api/matatu/payments', async (req, res) => {
     const byTx = {};
     (leds || []).forEach(le => {
       if (!byTx[le.transaction_id]) byTx[le.transaction_id] = 0;
-      if (['SACCO_FEE','SAVINGS','LOAN_REPAY'].includes(le.type)) {
+      if (['SACCO_FEE', 'SAVINGS', 'LOAN_REPAY'].includes(le.type)) {
         byTx[le.transaction_id] = round2(byTx[le.transaction_id] + Number(le.amount_kes));
       }
     });
@@ -612,10 +655,9 @@ app.get('/api/matatu/:matatuId/summary', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Public alias for staff apps to reuse payments-by-till
-app.get('/api/public/tills/:till/payments', async (req, res) => {
-  req.query.till = req.params.till;
-  return app._router.handle(req, res, () => {}, 'get', '/api/matatu/payments');
+// Public alias for staff apps to reuse payments-by-till (simple redirect)
+app.get('/api/public/tills/:till/payments', (req, res) => {
+  res.redirect(307, `/api/matatu/payments?till=${encodeURIComponent(req.params.till)}`);
 });
 
 /* =======================================================================
@@ -643,5 +685,5 @@ async function fetchLocal(path, body) {
 // ---- Start server ----
 app.listen(PORT, () => {
   console.log(`[TekeTeke] Listening on :${PORT}`);
-  console.log('[ENV] URL:', !!SUPABASE_URL, 'ANON:', !!SUPABASE_ANON_KEY, 'SRV:', !!SUPABASE_SERVICE_ROLE);
+  console.log('[ENV] URL:', !!SUPABASE_URL, 'ANON:', !!SUPABASE_ANON_KEY, 'SRV:', !!SUPABASE_SERVICE_ROLE, 'DEV_AUTOPAY:', DEV_AUTOPAY_ON);
 });
