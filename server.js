@@ -1,4 +1,4 @@
-// server.js (CommonJS, simple, complete)
+// server.js (CommonJS, complete, dashboards-ready)
 // npm i express cors morgan @supabase/supabase-js
 require('dotenv').config();
 const express = require('express');
@@ -32,6 +32,20 @@ app.use(express.static('public'));
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
 const startOfDayISO = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
 const endOfDayISO = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+
+function parseRange(query) {
+  // ?date=YYYY-MM-DD OR ?from=YYYY-MM-DD&to=YYYY-MM-DD (inclusive days)
+  if (query.from || query.to) {
+    const from = query.from ? new Date(query.from) : new Date();
+    const to = query.to ? new Date(query.to) : new Date();
+    return { from: startOfDayISO(from), to: endOfDayISO(to) };
+  }
+  if (query.date) {
+    const d = new Date(query.date);
+    return { from: startOfDayISO(d), to: endOfDayISO(d) };
+  }
+  return { from: startOfDayISO(), to: endOfDayISO() }; // today
+}
 
 async function getRuleset(sacco_id) {
   const { data, error } = await sb.from('sacco_settings').select('*').eq('sacco_id', sacco_id).maybeSingle();
@@ -82,24 +96,20 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// =====================================================
-// ADMIN: SACCOS / MATATUS / CASHIERS / RULESETS
-// =====================================================
-
-// Create SACCO
+/* =======================================================================
+   ADMIN: SACCOS / MATATUS / CASHIERS / RULESETS  (Create/Update/Delete)
+   =======================================================================*/
 app.post('/api/admin/register-sacco', requireAdmin, async (req, res) => {
   try {
     const { name, contact_name, contact_phone, contact_email, default_till } = req.body || {};
     if (!name) return res.status(400).json({ success: false, error: 'name required' });
     const { data, error } = await sbAdmin.from('saccos').insert([{ name, contact_name, contact_phone, contact_email, default_till }]).select().single();
     if (error) throw error;
-    // seed default settings for this SACCO
     await sbAdmin.from('sacco_settings').upsert({ sacco_id: data.id }).eq('sacco_id', data.id);
     res.json({ success: true, id: data.id });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Update SACCO
 app.post('/api/admin/update-sacco', requireAdmin, async (req, res) => {
   try {
     const { id, ...fields } = req.body || {};
@@ -110,7 +120,6 @@ app.post('/api/admin/update-sacco', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Delete SACCO
 app.delete('/api/admin/delete-sacco/:id', requireAdmin, async (req, res) => {
   try {
     const { error } = await sbAdmin.from('saccos').delete().eq('id', req.params.id);
@@ -119,7 +128,6 @@ app.delete('/api/admin/delete-sacco/:id', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Create/Update Matatu
 app.post('/api/admin/register-matatu', requireAdmin, async (req, res) => {
   try {
     const { sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number } = req.body || {};
@@ -148,7 +156,6 @@ app.delete('/api/admin/delete-matatu/:id', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Create Cashier
 app.post('/api/admin/cashier', requireAdmin, async (req, res) => {
   try {
     const { sacco_id, branch_id = null, matatu_id = null, name, phone = null, ussd_code } = req.body || {};
@@ -159,7 +166,6 @@ app.post('/api/admin/cashier', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Rulesets: Get + Upsert
 app.get('/api/admin/rulesets/:saccoId', requireAdmin, async (req, res) => {
   try { res.json({ success: true, rules: await getRuleset(req.params.saccoId) }); }
   catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -183,11 +189,50 @@ app.post('/api/admin/rulesets', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// =====================================================
-// POS LISTENER (amount prefill)
-// =====================================================
+/* =======================================================================
+   ADMIN: Lists for UI (GET only)
+   =======================================================================*/
+app.get('/api/admin/saccos', requireAdmin, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    let query = sb.from('saccos').select('id,name,contact_name,contact_phone,contact_email,created_at').order('created_at', { ascending: false });
+    if (q) query = query.ilike('name', `%${q}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-// Upsert latest scanned amount for a cashier
+app.get('/api/admin/matatus', requireAdmin, async (req, res) => {
+  try {
+    const { sacco_id } = req.query;
+    let query = sb.from('matatus')
+      .select('id, sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number, created_at')
+      .order('created_at', { ascending: false });
+    if (sacco_id) query = query.eq('sacco_id', sacco_id);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/transactions', requireAdmin, async (req, res) => {
+  try {
+    const { sacco_id, status, limit = 50 } = req.query;
+    let query = sb.from('transactions')
+      .select('id,sacco_id,matatu_id,cashier_id,passenger_msisdn,fare_amount_kes,service_fee_kes,status,mpesa_receipt,created_at')
+      .order('created_at', { ascending: false }).limit(Number(limit));
+    if (sacco_id) query = query.eq('sacco_id', sacco_id);
+    if (status)   query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* =======================================================================
+   POS LISTENER (amount prefill) — Conductor/Counter devices
+   =======================================================================*/
 app.post('/api/pos/latest', async (req, res) => {
   try {
     const { cashier_id, amount } = req.body || {};
@@ -200,21 +245,17 @@ app.post('/api/pos/latest', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Read latest amount for a cashier (UI polls this)
 app.get('/api/pos/latest/:cashierId', async (req, res) => {
   try {
-    const { data, error } = await sb.from('pos_latest')
-      .select('amount_kes, updated_at')
-      .eq('cashier_id', req.params.cashierId)
-      .maybeSingle();
+    const { data, error } = await sb.from('pos_latest').select('amount_kes, updated_at').eq('cashier_id', req.params.cashierId).maybeSingle();
     if (error) throw error;
     res.json(data || {});
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// =====================================================
-// PRICING PREVIEW (fee quote)
-// =====================================================
+/* =======================================================================
+   PRICING PREVIEW (fee quote)
+   =======================================================================*/
 app.post('/api/fees/quote', async (req, res) => {
   try {
     const { sacco_id, matatu_id, amount } = req.body || {};
@@ -226,12 +267,9 @@ app.post('/api/fees/quote', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// =====================================================
-// CASHIER FLOW (initiate, callback, status)
-// =====================================================
-
-// Initiate payment (generate checkout_id + pending tx)
-// NOTE: Replace this simulation with real Daraja STK initiate later.
+/* =======================================================================
+   CASHIER FLOW (initiate, callback, status)
+   =======================================================================*/
 app.post('/api/cashier/initiate', async (req, res) => {
   try {
     const { amount, msisdn, sacco_id, matatu_id, cashier_id, ussd_code } = req.body || {};
@@ -267,28 +305,20 @@ app.post('/api/cashier/initiate', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// Real Daraja/aggregator will post here.
 app.post('/api/cashier/callback/mpesa', async (req, res) => {
   try {
     await handleMpesaCallback(req.body || {});
     res.json({ success: true });
   } catch (err) {
     console.error('[mpesa callback] error:', err.message);
-    // Respond 200 to avoid endless retries by aggregator
-    res.status(200).json({ success: false, error: err.message });
+    res.status(200).json({ success: false, error: err.message }); // avoid endless retries
   }
 });
 
-// Callback handler (idempotent on mpesa_checkout_id)
 async function handleMpesaCallback(payload) {
-  const {
-    checkout_id, success, amount, msisdn,
-    sacco_id, matatu_id, cashier_id, ussd_code, receipt
-  } = payload;
-
+  const { checkout_id, success, amount, msisdn, sacco_id, matatu_id, cashier_id, ussd_code, receipt } = payload;
   if (!checkout_id || amount == null || !sacco_id) throw new Error('checkout_id, amount, sacco_id required');
 
-  // Upsert the transaction by checkout_id
   const baseTx = {
     sacco_id, matatu_id, cashier_id, ussd_code,
     passenger_msisdn: msisdn || null,
@@ -306,15 +336,12 @@ async function handleMpesaCallback(payload) {
     .select()
     .single();
   if (upErr) throw upErr;
+  if (!success) return;
 
-  if (!success) return; // done if failed
-
-  // Compute splits (respect daily SACCO fee once per day per matatu)
   const rules = await getRuleset(sacco_id);
   const dailyDone = matatu_id ? await hasPaidSaccoFeeToday(matatu_id) : false;
   const splits = computeSplits({ amount, rules, takeDailyFee: !dailyDone });
 
-  // Write ledger entries
   const entries = splits.map(s => ({
     transaction_id: upserted.id,
     sacco_id,
@@ -327,7 +354,6 @@ async function handleMpesaCallback(payload) {
   if (ledErr) throw ledErr;
 }
 
-// Poll status (by tx id or checkout id)
 app.get('/api/cashier/status/:id', async (req, res) => {
   try {
     const key = req.params.id;
@@ -342,21 +368,20 @@ app.get('/api/cashier/status/:id', async (req, res) => {
   } catch (err) { res.status(200).json({ final: true, status: 'FAILED', error: err.message }); }
 });
 
-// =====================================================
-/** MATATU STAFF VIEW: last payments by till
- *  Returns: [{ name, phone, amount, timestamp, deducted }]
- *  - name: placeholder 'Passenger'
- *  - phone: passenger_msisdn
- *  - deducted = SACCO_FEE + SAVINGS + LOAN_REPAY for that tx
- */
+/* =======================================================================
+   MATATU STAFF VIEW: last payments by till (public read)
+   =======================================================================*/
 app.get('/api/matatu/payments', async (req, res) => {
   try {
-    const till = req.query.till;
-    if (!till) return res.status(400).json({ error: 'till required' });
+    const tillRaw = (req.query.till ?? '').toString().trim();
+    const till = tillRaw.toLowerCase();
+    if (!tillRaw || till === 'null' || till === 'undefined') {
+      return res.status(400).json({ error: 'till required (e.g. /api/matatu/payments?till=987654)' });
+    }
 
-    const { data: m, error: mErr } = await sb.from('matatus').select('id').eq('till_number', till).maybeSingle();
+    const { data: m, error: mErr } = await sb.from('matatus').select('id').eq('till_number', tillRaw).maybeSingle();
     if (mErr) throw mErr;
-    if (!m) return res.json([]);
+    if (!m) return res.json([]); // no such till -> empty list
 
     const { data: txs, error: tErr } = await sb
       .from('transactions')
@@ -393,14 +418,15 @@ app.get('/api/matatu/payments', async (req, res) => {
     }));
 
     res.json(out);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('[payments-by-till]', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// =====================================================
-// ADMIN REPORTS (fees / loans summaries + settlements)
-// =====================================================
-
-// Fee transactions table (today) for Admin
+/* =======================================================================
+   ADMIN REPORTS (fees / loans summaries + settlements)
+   =======================================================================*/
 app.get('/api/admin/transactions/fees', requireAdmin, async (req, res) => {
   try {
     const start = startOfDayISO(), end = endOfDayISO();
@@ -421,7 +447,6 @@ app.get('/api/admin/transactions/fees', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Loan repayments table (today) for Admin
 app.get('/api/admin/transactions/loans', requireAdmin, async (req, res) => {
   try {
     const start = startOfDayISO(), end = endOfDayISO();
@@ -442,7 +467,6 @@ app.get('/api/admin/transactions/loans', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Daily settlement snapshot
 app.get('/api/admin/settlements', requireAdmin, async (req, res) => {
   try {
     const { sacco_id, date } = req.query;
@@ -469,14 +493,138 @@ app.get('/api/admin/settlements', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// =====================================================
-// USSD SIMULATOR (dev)
-// =====================================================
+/* =======================================================================
+   PUBLIC / SACCO / OWNER UTILITIES — read endpoints for all dashboards
+   =======================================================================*/
+app.get('/api/public/saccos', async (req, res) => {
+  try {
+    const { data, error } = await sb.from('saccos').select('id,name').order('name');
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Lookup a matatu by plate or till (?plate=KDA123A or ?till=123456)
+app.get('/api/lookup/matatu', async (req, res) => {
+  try {
+    const { plate, till } = req.query;
+    let q = sb.from('matatus').select('id,sacco_id,number_plate,owner_name,owner_phone,vehicle_type,tlb_number,till_number').limit(1);
+    if (plate) q = q.eq('number_plate', plate);
+    else if (till) q = q.eq('till_number', till);
+    else return res.status(400).json({ error: 'provide plate or till' });
+    const { data, error } = await q.single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+// SACCO-scoped reads (no admin token; OK for demo dashboards)
+app.get('/api/sacco/:saccoId/matatus', async (req, res) => {
+  try {
+    const { saccoId } = req.params;
+    const { data, error } = await sb.from('matatus')
+      .select('id,number_plate,owner_name,owner_phone,vehicle_type,tlb_number,till_number,created_at')
+      .eq('sacco_id', saccoId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sacco/:saccoId/cashiers', async (req, res) => {
+  try {
+    const { saccoId } = req.params;
+    const { data, error } = await sb.from('cashiers')
+      .select('id,name,phone,ussd_code,matatu_id,active,created_at')
+      .eq('sacco_id', saccoId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sacco/:saccoId/transactions', async (req, res) => {
+  try {
+    const { saccoId } = req.params;
+    const { status, limit = 50 } = req.query;
+    let q = sb.from('transactions')
+      .select('id,matatu_id,cashier_id,passenger_msisdn,fare_amount_kes,service_fee_kes,status,mpesa_receipt,created_at')
+      .eq('sacco_id', saccoId)
+      .order('created_at', { ascending: false })
+      .limit(Number(limit));
+    if (status) q = q.eq('status', status);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sacco/:saccoId/summary', async (req, res) => {
+  try {
+    const { saccoId } = req.params;
+    const { from, to } = parseRange(req.query);
+    const { data, error } = await sb.from('ledger_entries')
+      .select('type,amount_kes')
+      .eq('sacco_id', saccoId)
+      .gte('created_at', from).lt('created_at', to);
+    if (error) throw error;
+    const totals = (data || []).reduce((acc, r) => {
+      acc[r.type] = round2((acc[r.type] || 0) + Number(r.amount_kes));
+      return acc;
+    }, {});
+    const fare = totals.FARE || 0, savings = totals.SAVINGS || 0, loan = totals.LOAN_REPAY || 0, saccofee = totals.SACCO_FEE || 0;
+    const net_owner = round2(fare - savings - loan - saccofee);
+    res.json({ range: { from, to }, totals: { ...totals, NET_TO_OWNER: net_owner } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// MATATU owner reads
+app.get('/api/matatu/:matatuId/transactions', async (req, res) => {
+  try {
+    const { matatuId } = req.params;
+    const { limit = 50 } = req.query;
+    const { data, error } = await sb.from('transactions')
+      .select('id,passenger_msisdn,fare_amount_kes,status,mpesa_receipt,created_at')
+      .eq('matatu_id', matatuId)
+      .order('created_at', { ascending: false })
+      .limit(Number(limit));
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/matatu/:matatuId/summary', async (req, res) => {
+  try {
+    const { matatuId } = req.params;
+    const { from, to } = parseRange(req.query);
+    const { data, error } = await sb.from('ledger_entries')
+      .select('type,amount_kes')
+      .eq('matatu_id', matatuId)
+      .gte('created_at', from).lt('created_at', to);
+    if (error) throw error;
+    const totals = (data || []).reduce((acc, r) => {
+      acc[r.type] = round2((acc[r.type] || 0) + Number(r.amount_kes));
+      return acc;
+    }, {});
+    const fare = totals.FARE || 0, savings = totals.SAVINGS || 0, loan = totals.LOAN_REPAY || 0, saccofee = totals.SACCO_FEE || 0;
+    const net_owner = round2(fare - savings - loan - saccofee);
+    res.json({ range: { from, to }, totals: { ...totals, NET_TO_OWNER: net_owner } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public alias for staff apps to reuse payments-by-till
+app.get('/api/public/tills/:till/payments', async (req, res) => {
+  req.query.till = req.params.till;
+  return app._router.handle(req, res, () => {}, 'get', '/api/matatu/payments');
+});
+
+/* =======================================================================
+   USSD SIMULATOR (dev)
+   =======================================================================*/
 app.post('/flashpay/confirm', async (req, res) => {
   try {
     const { ussdCode, phone, amount = 50, sacco_id, matatu_id, cashier_id } = req.body || {};
     if (!ussdCode || !phone || !sacco_id) return res.status(400).json({ success: false, message: 'ussdCode, phone, sacco_id required' });
-    // For now just use cashier/initiate (same flow)
     const r = await fetchLocal('/api/cashier/initiate', {
       amount, msisdn: phone, sacco_id, matatu_id, cashier_id, ussd_code: ussdCode
     });

@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SACCO Admin Dashboard – TekeTeke</title>
+  <title>SACCO Admin Dashboard â€“ TekeTeke</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -60,7 +60,7 @@
 </head>
 <body>
 
-  <h2>SACCO Admin Dashboard – TekeTeke</h2>
+  <h2>SACCO Admin Dashboard â€“ TekeTeke</h2>
 
   <div class="tabs">
     <div class="tab active" onclick="showPanel('saccos')">SACCOs</div>
@@ -131,7 +131,7 @@
         body: JSON.stringify({ name, contact, till })
       });
       const result = await res.json();
-      alert('✅ SACCO Registered');
+      alert('âœ… SACCO Registered');
     }
 
     async function registerMatatu() {
@@ -147,7 +147,7 @@
         body: JSON.stringify({ plate, owner, contact, type, tlb, till, sacco })
       });
       const result = await res.json();
-      alert('✅ Matatu Registered');
+      alert('âœ… Matatu Registered');
     }
 
     async function editSacco(id, name, contact, till) {
@@ -159,14 +159,14 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, name: newName, contact: newContact, till: newTill })
       });
-      alert('✅ SACCO updated');
+      alert('âœ… SACCO updated');
       location.reload();
     }
 
     async function deleteSacco(id) {
       if (confirm("Are you sure you want to delete this SACCO?")) {
         await fetch(`/api/admin/delete-sacco/${id}`, { method: 'DELETE' });
-        alert('🗑️ SACCO deleted');
+        alert('ðŸ—‘ï¸ SACCO deleted');
         location.reload();
       }
     }
@@ -186,14 +186,14 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...updated })
       });
-      alert('✅ Matatu updated');
+      alert('âœ… Matatu updated');
       location.reload();
     }
 
     async function deleteMatatu(id) {
       if (confirm("Delete this Matatu?")) {
         await fetch(`/api/admin/delete-matatu/${id}`, { method: 'DELETE' });
-        alert('🗑️ Matatu deleted');
+        alert('ðŸ—‘ï¸ Matatu deleted');
         location.reload();
       }
     }
@@ -240,5 +240,6 @@
     loadTransactions();
   </script>
 
-</body>
+  <script src="/js/api.js"></script>`r`n  <script src="/js/panel.js"></script>`r`n</body>
 </html>
+

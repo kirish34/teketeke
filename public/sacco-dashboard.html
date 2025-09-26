@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SACCO Dashboard – TekeTeke</title>
+  <title>SACCO Dashboard â€“ TekeTeke</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <style>
@@ -58,7 +58,7 @@
   </style>
 </head>
 <body>
-<h2>SACCO Dashboard – TekeTeke</h2>
+<h2>SACCO Dashboard â€“ TekeTeke</h2>
 <div class="tabs">
   <div class="tab active" onclick="showPanel('matatus')">Matatus</div>
   <div class="tab" onclick="showPanel('fees')">Fee Collection</div>
@@ -89,7 +89,7 @@
 </div>
 
 <div id="loans" class="panel">
-  <h3>🚘 Matatu Loan Applications & Tracking</h3>
+  <h3>ðŸš˜ Matatu Loan Applications & Tracking</h3>
   <h4>Apply New Loan</h4>
   <input type="text" id="loanMatatuCode" placeholder="Matatu Numberplate">
   <input type="number" id="loanAmount" placeholder="Loan Amount (KES)">
@@ -102,7 +102,7 @@
   </select>
   <button onclick="submitLoan()">Submit Loan Application</button>
   <hr style="margin: 30px 0;">
-  <h4>📊 Active Loans</h4>
+  <h4>ðŸ“Š Active Loans</h4>
   <table><thead><tr><th>Matatu</th><th>Purpose</th><th>Amount</th><th>Issued</th><th>Due</th><th>Status</th></tr></thead>
     <tbody id="loanList"></tbody>
   </table>
@@ -154,7 +154,7 @@
       type: 'daily'
     };
     const { error } = await supabase.from('sacco_tx_fees').insert([data]);
-    alert(error ? '❌ Error: ' + error.message : '✅ Fee saved');
+    alert(error ? 'âŒ Error: ' + error.message : 'âœ… Fee saved');
   }
 
   async function addSavingSettings() {
@@ -165,7 +165,7 @@
       type: 'savings'
     };
     const { error } = await supabase.from('sacco_tx_fees').insert([data]);
-    alert(error ? '❌ Error: ' + error.message : '✅ Saving saved');
+    alert(error ? 'âŒ Error: ' + error.message : 'âœ… Saving saved');
   }
 
   async function submitLoan() {
@@ -178,11 +178,11 @@
       status: 'Pending'
     };
     if (!data.matatu || !data.amount || !data.loantype) {
-      alert("⚠️ Please fill all loan fields before submitting.");
+      alert("âš ï¸ Please fill all loan fields before submitting.");
       return;
     }
     const { error } = await supabase.from('sacco_tx_loans').insert([data]);
-    alert(error ? '❌ Error: ' + error.message : '✅ Loan submitted!');
+    alert(error ? 'âŒ Error: ' + error.message : 'âœ… Loan submitted!');
     loadLoans();
   }
 
@@ -301,5 +301,6 @@
   document.getElementById("dateFilter").addEventListener("change", loadDeductionsLog);
   document.getElementById("statusFilter").addEventListener("change", loadDeductionsLog);
 </script>
-</body>
+  <script src="/js/api.js"></script>`r`n  <script src="/js/panel.js"></script>`r`n</body>
 </html>
+
