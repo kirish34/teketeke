@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TekeTeke – SACCO Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --brand:#1976d2; --brand-700:#135ba1; --bg:#f5f7fb; --panel:#fff;
+      --text:#0b0f19; --muted:#6b7280; --border:#e5e7eb; --ok:#065f46;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);margin:0;padding:20px}
+    h2{color:var(--brand);margin:0 0 12px}
+    .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    select,input,button{padding:10px;border:1px solid var(--border);border-radius:8px}
+    button{background:var(--brand);color:#fff;border:none;cursor:pointer}
+    button.ghost{background:#fff;color:var(--brand)}
+    .tabs{display:flex;gap:8px;margin:8px 0 16px}
+    .tab{padding:10px 14px;background:var(--brand);color:#fff;border-radius:8px;cursor:pointer}
+    .tab.active{background:var(--brand-700)}
+    .panel{display:none;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    .panel.active{display:block}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .right{margin-left:auto}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-weight:700;font-size:20px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:10px;border:1px solid var(--border);text-align:left}
+    th{background:var(--brand);color:#fff}
+    .mono{font-family:ui-monospace,Consolas,monospace}
+  </style>
+</head>
+<body>
+
+  <h2>SACCO Dashboard</h2>
+
+  <div class="bar">
+    <label>SACCO
+      <select id="saccoSelect"></select>
+    </label>
+    <label>From <input id="fromDate" type="date"></label>
+    <label>To <input id="toDate" type="date"></label>
+    <button id="applyRange">Apply</button>
+    <span class="right k" id="statusMsg"></span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-panel="p_matatus">Matatus</div>
+    <div class="tab" data-panel="p_summary">Collections</div>
+    <div class="tab" data-panel="p_tx">Transactions</div>
+    <!-- NEW: Savings + Loans tabs -->
+    <div class="tab" data-panel="p_savings">Savings</div>
+    <div class="tab" data-panel="p_loans">Loans</div>
+  </div>
+
+  <!-- Matatus -->
+  <section id="p_matatus" class="panel active">
+    <div class="row">
+      <input id="matatuSearch" placeholder="Search plate…" />
+      <button class="ghost" id="reloadMatatus">Reload</button>
+      <span class="right k" id="matatuCount"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Plate</th><th>Owner</th><th>Phone</th><th>Type</th><th>TLB</th><th>Till</th><th>ID</th>
+        </tr>
+      </thead>
+      <tbody id="matatuTbody"></tbody>
+    </table>
+  </section>
+
+  <!-- Collections (totals + chart) -->
+  <section id="p_summary" class="panel">
+    <div class="grid">
+      <div class="card"><div class="k">FARE (gross)</div><div class="v" id="sum_fare">0</div></div>
+      <div class="card"><div class="k">SAVINGS</div><div class="v" id="sum_savings">0</div></div>
+      <div class="card"><div class="k">LOAN REPAY</div><div class="v" id="sum_loan">0</div></div>
+      <div class="card"><div class="k">SACCO FEE</div><div class="v" id="sum_sacco">0</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <canvas id="summaryChart" height="120"></canvas>
+    </div>
+  </section>
+
+  <!-- Transactions -->
+  <section id="p_tx" class="panel">
+    <div class="row">
+      <label>Status
+        <select id="txStatus">
+          <option value="">All</option>
+          <option value="SUCCESS">SUCCESS</option>
+          <option value="PENDING">PENDING</option>
+          <option value="FAILED">FAILED</option>
+          <option value="TIMEOUT">TIMEOUT</option>
+        </select>
+      </label>
+      <button class="ghost" id="reloadTx">Reload</button>
+      <button id="exportTx">Export CSV</button>
+      <span class="right k" id="txCount"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Matatu</th><th>Cashier</th><th>MSISDN</th><th>Fare</th><th>Service Fee</th><th>Status</th><th>ID</th>
+        </tr>
+      </thead>
+      <tbody id="txTbody"></tbody>
+    </table>
+  </section>
+
+  <!-- NEW: Savings tab (totals + chart from /summary) -->
+  <section id="p_savings" class="panel">
+    <div class="grid">
+      <div class="card"><div class="k">Total Savings (range)</div><div class="v" id="sav_total">0</div></div>
+      <div class="card"><div class="k">Days</div><div class="v" id="sav_days">0</div></div>
+      <div class="card"><div class="k">Avg / day</div><div class="v" id="sav_avg">0</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <canvas id="savingsChart" height="120"></canvas>
+    </div>
+    <p class="k" style="margin-top:8px">Note: this uses the same totals as Collections. For a per-day breakdown from the server, I can add <span class="mono">/api/sacco/:id/summary/daily</span>.</p>
+  </section>
+
+  <!-- NEW: Loans tab (totals + chart from /summary) -->
+  <section id="p_loans" class="panel">
+    <div class="grid">
+      <div class="card"><div class="k">Total Loan Repay (range)</div><div class="v" id="loan_total">0</div></div>
+      <div class="card"><div class="k">Days</div><div class="v" id="loan_days">0</div></div>
+      <div class="card"><div class="k">Avg / day</div><div class="v" id="loan_avg">0</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <canvas id="loansChart" height="120"></canvas>
+    </div>
+  </section>
+
+<script>
+(function(){
+  // ---------- utils ----------
+  const $ = id => document.getElementById(id);
+  const fmt = n => Number(n||0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const todayISO = () => new Date().toISOString().slice(0,10);
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+
+  // ---------- tabs ----------
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.onclick=()=>{
+      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      $(t.dataset.panel).classList.add('active');
+    };
+  });
+
+  // ---------- date defaults (last 7 days) ----------
+  $('toDate').value = todayISO();
+  $('fromDate').value = addDays(todayISO(), -6);
+
+  // ---------- state ----------
+  let currentSacco = null;
+  let chartSummary, chartSavings, chartLoans;
+  let cachedTotals = null; // keep the last /summary result
+
+  async function jget(path){
+    const r = await fetch(path);
+    if(!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  // ---------- load sacco list ----------
+  async function loadSaccos(){
+    const data = await jget('/api/public/saccos');
+    const sel = $('saccoSelect');
+    sel.innerHTML = '<option value="">— choose —</option>';
+    (data.items||[]).forEach(s=>{
+      const o=document.createElement('option');
+      o.value=s.id; o.textContent=s.name; sel.appendChild(o);
+    });
+    $('statusMsg').textContent = `${(data.items||[]).length} SACCO(s)`;
+  }
+
+  // ---------- matatus ----------
+  async function loadMatatus(){
+    if(!currentSacco) return;
+    const data = await jget(`/api/sacco/${currentSacco}/matatus`);
+    const q = $('matatuSearch').value.trim().toUpperCase();
+    const rows = (data.items||[]).filter(m => !q || (m.number_plate||'').toUpperCase().includes(q));
+    const T = $('matatuTbody'); T.innerHTML='';
+    rows.forEach(m=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${m.number_plate||''}</td>
+        <td>${m.owner_name||''}</td>
+        <td>${m.owner_phone||''}</td>
+        <td>${m.vehicle_type||''}</td>
+        <td>${m.tlb_number||''}</td>
+        <td>${m.till_number||''}</td>
+        <td class="mono">${m.id}</td>`;
+      T.appendChild(tr);
+    });
+    $('matatuCount').textContent = `${rows.length} matatu(s)`;
+  }
+
+  // ---------- helper: date list + even-split series (placeholder until daily endpoint exists) ----------
+  function enumerateDays(a,b){
+    const out=[]; let d=new Date(a+"T00:00:00");
+    const end = new Date(b+"T00:00:00");
+    while (d <= end){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+    return out;
+  }
+  function evenSeries(total, daysCount){ const v = (Number(total||0)/Math.max(1,daysCount)); return Array.from({length:daysCount},()=>v); }
+
+  // ---------- summary (totals + charts) ----------
+  async function loadSummary(){
+    if(!currentSacco) return;
+    const from = $('fromDate').value, to = $('toDate').value;
+    const res = await jget(`/api/sacco/${currentSacco}/summary?from=${from}&to=${to}`);
+    cachedTotals = res.totals || {};
+    const t = cachedTotals;
+
+    // Cards (Collections panel)
+    $('sum_fare').textContent = fmt(t.FARE||0);
+    $('sum_savings').textContent = fmt(t.SAVINGS||0);
+    $('sum_loan').textContent = fmt(t.LOAN_REPAY||0);
+    $('sum_sacco').textContent = fmt(t.SACCO_FEE||0);
+
+    const days = enumerateDays(from, to);
+    // Collections chart → plot SACCO_FEE
+    renderChart('summaryChart', 'SACCO Fee (KES)', days, evenSeries(t.SACCO_FEE||0, days.length), (c)=> chartSummary=c);
+
+    // Savings panel
+    $('sav_total').textContent = fmt(t.SAVINGS||0);
+    $('sav_days').textContent = days.length;
+    $('sav_avg').textContent = fmt((t.SAVINGS||0)/Math.max(1,days.length));
+    renderChart('savingsChart', 'Savings (KES)', days, evenSeries(t.SAVINGS||0, days.length), (c)=> chartSavings=c);
+
+    // Loans panel
+    $('loan_total').textContent = fmt(t.LOAN_REPAY||0);
+    $('loan_days').textContent = days.length;
+    $('loan_avg').textContent = fmt((t.LOAN_REPAY||0)/Math.max(1,days.length));
+    renderChart('loansChart', 'Loan Repay (KES)', days, evenSeries(t.LOAN_REPAY||0, days.length), (c)=> chartLoans=c);
+  }
+
+  function renderChart(canvasId, label, labels, values, saveRef){
+    const ctx = document.getElementById(canvasId);
+    if (ctx._inst) { ctx._inst.destroy(); }
+    const inst = new Chart(ctx, {
+      type:'line',
+      data:{ labels, datasets:[{ label, data: values, borderColor:'#1976d2', backgroundColor:'transparent', tension:.25 }]},
+      options:{ responsive:true, scales:{ y:{ beginAtZero:true } } }
+    });
+    ctx._inst = inst;
+    if (saveRef) saveRef(inst);
+  }
+
+  // ---------- transactions ----------
+  async function loadTx(){
+    if(!currentSacco) return;
+    const limit = 200;
+    const status = $('txStatus').value;
+    const res = await jget(`/api/sacco/${currentSacco}/transactions?limit=${limit}${status?`&status=${encodeURIComponent(status)}`:''}`);
+    const items = res.items || [];
+    const T = $('txTbody'); T.innerHTML='';
+    items.forEach(tx=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${new Date(tx.created_at).toLocaleString()}</td>
+        <td class="mono">${tx.matatu_id||''}</td>
+        <td class="mono">${tx.cashier_id||''}</td>
+        <td class="mono">${tx.passenger_msisdn||''}</td>
+        <td>${fmt(tx.fare_amount_kes||0)}</td>
+        <td>${fmt(tx.service_fee_kes||0)}</td>
+        <td>${tx.status}</td>
+        <td class="mono">${tx.id}</td>`;
+      T.appendChild(tr);
+    });
+    $('txCount').textContent = `${items.length} row(s)`;
+  }
+
+  function exportTableToCSV(filename, tableBodyId){
+    const tbody = document.getElementById(tableBodyId);
+    const table = tbody.closest('table');
+    const rows = [...table.querySelectorAll('tr')];
+    const csv = rows.map(r => {
+      const cols = [...r.querySelectorAll('th,td')].map(c => `"${(c.innerText||'').replace(/"/g,'""')}"`);
+      return cols.join(',');
+    }).join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  }
+
+  // ---------- wiring ----------
+  $('saccoSelect').onchange = async ()=>{
+    currentSacco = $('saccoSelect').value || null;
+    await Promise.all([loadMatatus(), loadSummary(), loadTx()]);
+  };
+  $('applyRange').onclick = ()=> loadSummary();
+  $('matatuSearch').oninput = ()=> { clearTimeout(window._mtT); window._mtT=setTimeout(loadMatatus, 200); };
+  $('reloadMatatus').onclick = loadMatatus;
+  $('txStatus').onchange = loadTx;
+  $('reloadTx').onclick = loadTx;
+  $('exportTx').onclick = ()=> exportTableToCSV('transactions.csv','txTbody');
+
+  // ---------- init ----------
+  async function init(){
+    try{
+      await loadSaccos();
+      // auto-pick first sacco if present
+      const sel = $('saccoSelect');
+      if (sel.options.length > 1){
+        sel.selectedIndex = 1;
+        currentSacco = sel.value;
+      }
+      await Promise.all([loadMatatus(), loadSummary(), loadTx()]);
+    }catch(e){
+      $('statusMsg').textContent = e.message;
+      console.error(e);
+      alert('Load error: '+e.message);
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

@@ -3,17 +3,12 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>TekeTeke Dashboards</title>
+  <title>TekeTeke Transport • Dashboards</title>
   <style>
-    :root{
-      --brand:#1976d2; --brand-700:#135ba1;
-      --ink:#0f172a; --bg:#f5f7fb; --panel:#fff; --muted:#6b7280; --border:#e5e7eb;
-    }
+    :root{--brand:#1976d2;--brand-700:#135ba1;--ink:#0f172a;--bg:#f5f7fb;--panel:#fff;--muted:#6b7280;--border:#e5e7eb}
     *{box-sizing:border-box} html,body{margin:0;padding:0}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
     a{color:inherit;text-decoration:none}
-
-    /* header / top bar */
     .top{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--border)}
     .wrap{max-width:1100px;margin:0 auto;padding:14px 16px;display:flex;gap:14px;align-items:center}
     .logo{display:flex;align-items:center;gap:10px;font-weight:700}
@@ -22,12 +17,9 @@
     .nav{display:flex;gap:8px;flex-wrap:wrap}
     .btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:#fff}
     .btn.primary{background:var(--brand);border-color:var(--brand-700);color:#fff}
-    .btn:hover{filter:brightness(.98)}
-    .btn.primary:hover{background:var(--brand-700)}
+    .btn:hover{filter:brightness(.98)} .btn.primary:hover{background:var(--brand-700)}
     .adm{display:flex;align-items:center;gap:8px;border:1px dashed var(--border);padding:6px 8px;border-radius:8px}
     .adm input{border:1px solid var(--border);border-radius:6px;padding:6px 8px;min-width:240px}
-
-    /* hero + grid */
     .hero{max-width:1100px;margin:24px auto 0;padding:0 16px}
     .title{font-size:28px;margin:10px 0 6px}
     .muted{color:var(--muted)}
@@ -35,38 +27,32 @@
     @media (max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media (max-width:640px){.grid{grid-template-columns:1fr}}
     .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:12px;align-items:center}
-    .card .ico{font-size:22px}
-    .card .go{margin-left:auto}
-    .chip{display:inline-block;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;padding:2px 8px;border-radius:999px;font-size:12px}
-
+    .card .ico{font-size:22px} .card .go{margin-left:auto}
     footer{max-width:1100px;margin:20px auto;padding:10px 16px;color:var(--muted);font-size:14px}
   </style>
 </head>
 <body>
 
-  <!-- Top menu bar -->
+  <!-- Top menu -->
   <header class="top">
     <div class="wrap">
       <div class="logo">
         <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:var(--brand);color:#fff">TT</span>
-        <span>TekeTeke</span>
+        <span>TekeTeke Transport</span>
         <span class="badge">Dashboards</span>
       </div>
 
       <nav class="nav">
         <a class="btn" href="/"><span>🏠</span>Home</a>
-        <a class="btn" href="/super/super-admin.html"><span>🛡️</span>Super Admin</a>
         <a class="btn primary" href="/sacco/admin-dashboard.html"><span>🏢</span>SACCO Admin</a>
         <a class="btn" href="/sacco/staff-dashboard.html"><span>🧑‍💼</span>SACCO Staff</a>
         <a class="btn" href="/matatu/owner-dashboard.html"><span>🚌</span>Matatu Owner</a>
-        <a class="btn" href="/super/manager-dashboard.html"><span>🏬</span>Branch Manager</a>
-        <a class="btn" href="/cashier/dashboard.html"><span>💳</span>Cashier</a>
         <a class="btn" href="/auth/role-select.html"><span>🔐</span>Logins</a>
       </nav>
 
       <div class="spacer"></div>
 
-      <!-- quick admin token saver (optional) -->
+      <!-- optional: store admin token locally -->
       <div class="adm" title="Stored locally in your browser">
         <span class="muted">Admin token</span>
         <input id="adm_token" placeholder="x-admin-token"/>
@@ -78,26 +64,20 @@
   <!-- Hero -->
   <section class="hero">
     <h1 class="title">Welcome 👋</h1>
-    <p class="muted">Choose a workspace below. Your admin token is saved locally and will be used by the admin dashboards.</p>
+    <p class="muted">Choose your workspace below. The admin token you save here is used by the SACCO Admin dashboard only.</p>
   </section>
 
-  <!-- Dashboard tiles -->
+  <!-- Tiles -->
   <main class="grid">
-    <a class="card" href="/super/super-admin.html">
-      <div class="ico">🛡️</div>
-      <div><strong>Super Admin</strong><div class="muted">System-level setup & reporting</div></div>
-      <span class="go">→</span>
-    </a>
-
     <a class="card" href="/sacco/admin-dashboard.html">
       <div class="ico">🏢</div>
       <div><strong>SACCO Admin</strong><div class="muted">SACCOs, Matatus, USSD pool, fees</div></div>
-      <span class="chip">popular</span>
+      <span class="go">→</span>
     </a>
 
     <a class="card" href="/sacco/staff-dashboard.html">
       <div class="ico">🧑‍💼</div>
-      <div><strong>SACCO Staff</strong><div class="muted">Daily operations and support</div></div>
+      <div><strong>SACCO Staff</strong><div class="muted">Daily operations & support</div></div>
       <span class="go">→</span>
     </a>
 
@@ -106,29 +86,16 @@
       <div><strong>Matatu Owner</strong><div class="muted">Trips, repayments, summaries</div></div>
       <span class="go">→</span>
     </a>
-
-    <a class="card" href="/super/manager-dashboard.html">
-      <div class="ico">🏬</div>
-      <div><strong>Branch Manager</strong><div class="muted">Branches & field ops</div></div>
-      <span class="go">→</span>
-    </a>
-
-    <a class="card" href="/cashier/dashboard.html">
-      <div class="ico">💳</div>
-      <div><strong>Cashier</strong><div class="muted">Collect payments & view status</div></div>
-      <span class="go">→</span>
-    </a>
   </main>
 
   <footer>
-    © <span id="yr"></span> TekeTeke • Built for SACCO operations
+    © <span id="yr"></span> TekeTeke Transport
   </footer>
 
   <script>
-    // save/reload admin token locally (used by admin dashboards)
-    const t = localStorage.getItem('tt_admin_token') || '';
-    const $ = sel => document.querySelector(sel);
-    $('#adm_token').value = t;
+    // admin token store
+    const $ = s => document.querySelector(s);
+    $('#adm_token').value = localStorage.getItem('tt_admin_token') || '';
     $('#save_token').onclick = () => {
       localStorage.setItem('tt_admin_token', $('#adm_token').value.trim());
       const b = $('#save_token'); const old = b.textContent; b.textContent = 'Saved ✓';
