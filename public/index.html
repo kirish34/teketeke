@@ -53,6 +53,8 @@
     .mono{font-family:monospace}
     .pill{display:inline-block;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;padding:2px 8px;border-radius:999px;font-size:12px}
     .table-wrap{max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+    /* small helpers for Admin Tools */
+    #adminLog{background:#0b1020;color:#cfe3ff;padding:10px;border-radius:8px;max-height:220px;overflow:auto}
   </style>
 </head>
 <body>
@@ -82,6 +84,7 @@
     <div class="tab" data-panel="p_matatus">Matatus</div>
     <div class="tab" data-panel="p_pool">USSD Pool</div>
     <div class="tab" data-panel="p_tx">Transactions</div>
+    <div class="tab" data-panel="p_tools">Admin Tools</div><!-- NEW -->
   </div>
 
   <!-- SACCOs -->
@@ -237,6 +240,41 @@
     </div>
   </section>
 
+  <!-- NEW: Admin Tools panel (quick tester) -->
+  <section id="p_tools" class="panel">
+    <h3>🛠️ Admin Tools – SACCOs (Quick Test)</h3>
+    <p class="muted">Uses the same token above and <strong>API</strong> dropdown.</p>
+
+    <div class="row" style="margin:8px 0;">
+      <button class="btn" id="tools_list">List SACCOs</button>
+    </div>
+    <div id="saccosTable" class="table-wrap" style="margin-bottom:10px;"></div>
+
+    <h4>Register</h4>
+    <div class="grid grid-2">
+      <input id="tools_reg_name"         placeholder="name" />
+      <input id="tools_reg_cname"        placeholder="contact_name" />
+      <input id="tools_reg_phone"        placeholder="contact_phone" />
+      <input id="tools_reg_till"         placeholder="default_till" />
+    </div>
+    <div style="margin:8px 0;">
+      <button class="btn ok" id="tools_reg_btn">Register</button>
+    </div>
+
+    <h4>Update</h4>
+    <div class="grid grid-2">
+      <input id="tools_upd_id"           placeholder="id" />
+      <input id="tools_upd_cname"        placeholder="contact_name (optional)" />
+      <input id="tools_upd_phone"        placeholder="contact_phone (optional)" />
+      <input id="tools_upd_till"         placeholder="default_till (optional)" />
+    </div>
+    <div style="margin:8px 0;">
+      <button class="btn" id="tools_upd_btn">Update</button>
+    </div>
+
+    <pre id="adminLog"></pre>
+  </section>
+
 <script>
 (function(){
   // ====== tiny client
@@ -266,7 +304,7 @@
     setTimeout(()=> $('tok_state').textContent='', 1200);
   };
 
-  // ====== SACCOs
+  // ====== SACCOs (main tab)
   async function loadSaccos(){
     const q = $('sc_q').value.trim();
     const data = await jget('/api/admin/saccos' + (q? ('?q='+encodeURIComponent(q)) : ''));
@@ -446,7 +484,6 @@
     const avail = (av.items||[]).filter(x => (x.full_code||'').startsWith(prefix));
     const alloc = (al.items||[]).filter(x => (x.full_code||'').startsWith(prefix));
     $('up_counts').textContent = `Available: ${avail.length} • Allocated: ${alloc.length}`;
-    // render available
     const A = $('up_avail_tbody'); A.innerHTML='';
     const q = ($('up_search').value||'').toLowerCase();
     avail.filter(x => !q || x.base.includes(q) || (x.full_code||'').toLowerCase().includes(q))
@@ -457,7 +494,6 @@
               <td><button class="btn" data-code="${r.full_code}">Bind</button></td>`;
             A.appendChild(tr);
           });
-    // render allocated
     const AL = $('up_alloc_tbody'); AL.innerHTML='';
     alloc.forEach(r=>{
       const when = r.assigned_at ? new Date(r.assigned_at).toLocaleString() : '';
@@ -499,7 +535,7 @@
       $('up_manual_code').value='';
       showMsg('Bound '+r.ussd_code);
       await loadPool();
-    }catch(e){ showMsg(e.message,false); }
+    }catch(err){ showMsg(err.message,false); }
   };
   $('up_refresh').onclick = loadPool;
   $('up_search').oninput = ()=> { clearTimeout(window._up_t); window._up_t=setTimeout(loadPool, 200); };
@@ -543,6 +579,67 @@
     }).join('\n');
     const blob = new Blob([csv], {type:'text/csv'});
     const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  };
+
+  // ====== Admin Tools (NEW)
+  function tlog(msg, obj){
+    const el = $('adminLog');
+    const time = new Date().toLocaleTimeString();
+    el.textContent = `[${time}] ${msg}` + (obj ? `\n${JSON.stringify(obj,null,2)}` : "") + "\n\n" + el.textContent;
+  }
+  function renderToolsTable(list=[]){
+    const wrap = $('saccosTable');
+    if (!Array.isArray(list) || list.length===0){ wrap.innerHTML = '<div style="padding:8px;">No data</div>'; return; }
+    const rows = list.map(s=>`
+      <tr>
+        <td>${s.id||''}</td>
+        <td>${s.name||''}</td>
+        <td>${s.contact_name||''}</td>
+        <td>${s.contact_phone||''}</td>
+        <td>${s.default_till||''}</td>
+        <td>${s.created_at||''}</td>
+      </tr>`).join('');
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Name</th><th>Contact</th><th>Phone</th><th>Till</th><th>Created</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+  $('tools_list').onclick = async ()=>{
+    try{
+      const data = await jget('/api/admin/saccos');
+      renderToolsTable(data.items || data || []);
+      tlog('📋 Listed', data);
+    }catch(e){ tlog('❌ List failed: '+e.message); }
+  };
+  $('tools_reg_btn').onclick = async ()=>{
+    const body = {
+      name:          $('tools_reg_name').value.trim(),
+      contact_name:  $('tools_reg_cname').value.trim(),
+      contact_phone: $('tools_reg_phone').value.trim(),
+      default_till:  $('tools_reg_till').value.trim()
+    };
+    if (!body.name) return tlog('⚠️ Name is required');
+    try{
+      const r = await jpost('/api/admin/register-sacco', body);
+      tlog('✅ Registered', r);
+      $('tools_list').click();
+    }catch(e){ tlog('❌ Register failed: '+e.message+' (maybe duplicate name?)'); }
+  };
+  $('tools_upd_btn').onclick = async ()=>{
+    const id = $('tools_upd_id').value.trim();
+    if (!id) return tlog('⚠️ Provide id');
+    const body = { id };
+    const cn = $('tools_upd_cname').value.trim(); if (cn) body.contact_name = cn;
+    const ph = $('tools_upd_phone').value.trim(); if (ph) body.contact_phone = ph;
+    const tl = $('tools_upd_till').value.trim();  if (tl) body.default_till  = tl;
+    try{
+      const r = await jpost('/api/admin/update-sacco', body);
+      tlog('✅ Updated', r);
+      $('tools_list').click();
+    }catch(e){ tlog('❌ Update failed: '+e.message); }
   };
 
   // ====== init

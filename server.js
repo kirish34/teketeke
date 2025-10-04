@@ -1,7 +1,8 @@
 // server.js — TekeTeke backend (dashboards + auth + USSD pool + fees/reports)
-// ENV: PORT, NODE_ENV, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE,
-//      SUPABASE_JWT_SECRET (optional), ADMIN_TOKEN
 require('dotenv').config();
+
+// ---- Core imports ----
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -34,8 +35,11 @@ const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { pers
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.static('public')); // serve dashboards
+
+// ---- Static dashboards ----
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- Helpers ----
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
@@ -106,15 +110,10 @@ function fullCode(prefix, base, check) { const p = prefix || '*001*'; return `${
 app.get('/health', (req, res) => res.json({ ok: true, env: NODE_ENV, time: new Date().toISOString() }));
 
 // =======================
-// AUTH + ROLES (NEW)
+// AUTH + ROLES
 // =======================
+app.get('/config.json', (req, res) => { res.json({ SUPABASE_URL, SUPABASE_ANON_KEY }); });
 
-// 0) Config for browser login page
-app.get('/config.json', (req, res) => {
-  res.json({ SUPABASE_URL, SUPABASE_ANON_KEY });
-});
-
-// Verify Supabase access token; tolerant if SUPABASE_JWT_SECRET absent/mismatch
 async function requireUser(req, res, next) {
   try {
     const auth = req.headers.authorization || '';
@@ -140,14 +139,12 @@ async function requireUser(req, res, next) {
   }
 }
 
-// Admin guard (dashboard admin token)
 function requireAdmin(req, res, next) {
   const token = req.headers['x-admin-token'];
   if (!token || token !== ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
 
-// Role helpers
 async function getSaccoRoles(userId) {
   const { data, error } = await sb
     .from('sacco_users')
@@ -170,7 +167,6 @@ async function getMatatuRoles(userId) {
   }));
 }
 
-// Require sacco membership (any role)
 async function requireSaccoMember(req, res, next) {
   try {
     const saccoId = req.params.saccoId || req.query.sacco_id || req.body.sacco_id;
@@ -182,8 +178,6 @@ async function requireSaccoMember(req, res, next) {
     next();
   } catch (e) { res.status(500).json({ error: e.message }); }
 }
-
-// Require specific SACCO role(s)
 function requireSaccoRole(allowed = []) {
   return async (req, res, next) => {
     try {
@@ -200,8 +194,6 @@ function requireSaccoRole(allowed = []) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   };
 }
-
-// Require Matatu role(s)
 function requireMatatuRole(allowed = ['owner','conductor']) {
   return async (req, res, next) => {
     try {
@@ -220,8 +212,6 @@ function requireMatatuRole(allowed = ['owner','conductor']) {
 }
 
 // -------- AUTH routes --------
-
-// Signup: { email, password, sacco_id?, sacco_role?='STAFF', matatu_id?, member_role?='conductor' }
 app.post('/auth/signup', async (req, res) => {
   try {
     const { email, password, sacco_id, sacco_role='STAFF', matatu_id, member_role='conductor' } = req.body || {};
@@ -240,7 +230,6 @@ app.post('/auth/signup', async (req, res) => {
   }
 });
 
-// Login (canonical)
 async function doLogin(email, password) {
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) throw error;
@@ -274,8 +263,6 @@ app.post('/auth/login', async (req, res) => {
     res.status(401).json({ ok:false, error: e.message });
   }
 });
-
-// Backwards compatibility (alias)
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -284,16 +271,14 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ success:true, ...s });
   } catch (e) { res.status(401).json({ success:false, error:e.message }); }
 });
-
-// Logout (client should also drop tokens)
-app.post('/auth/logout', requireUser, async (req, res) => {
+app.post('/auth/logout', requireUser, async (_req, res) => {
   try { await sb.auth.signOut(); res.json({ ok:true }); }
   catch { res.json({ ok:true }); }
 });
 
-// Minimal session stub (kept for old UIs)
-app.get('/api/auth/session', (req, res) => res.json({ loggedIn: true, role: 'SACCO_ADMIN', cashierId: 'CASHIER-001' }));
-app.post('/api/auth/logout', (req, res) => res.json({ ok: true }));
+// Legacy stubs
+app.get('/api/auth/session', (_req, res) => res.json({ loggedIn: true, role: 'SACCO_ADMIN', cashierId: 'CASHIER-001' }));
+app.post('/api/auth/logout', (_req, res) => res.json({ ok: true }));
 
 // Who am I & roles
 app.get('/api/me', requireUser, (req, res) => res.json({ id: req.user.id, email: req.user.email }));
@@ -591,7 +576,7 @@ app.get('/api/cashier/status/:id', async (req, res) => {
 });
 
 // =======================
-// MATATU STAFF VIEW: last payments by till (public read)
+// MATATU STAFF VIEW
 // =======================
 app.get('/api/matatu/payments', async (req, res) => {
   try {
@@ -647,9 +632,9 @@ app.get('/api/matatu/payments', async (req, res) => {
 });
 
 // =======================
-// ADMIN REPORTS (fees / loans summaries + settlements)
+// ADMIN REPORTS
 // =======================
-app.get('/api/admin/transactions/fees', requireAdmin, async (req, res) => {
+app.get('/api/admin/transactions/fees', requireAdmin, async (_req, res) => {
   try {
     const start = startOfDayISO(), end = endOfDayISO();
     const { data, error } = await sb
@@ -669,7 +654,7 @@ app.get('/api/admin/transactions/fees', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/admin/transactions/loans', requireAdmin, async (req, res) => {
+app.get('/api/admin/transactions/loans', requireAdmin, async (_req, res) => {
   try {
     const start = startOfDayISO(), end = endOfDayISO();
     const { data, error } = await sb
@@ -716,7 +701,7 @@ app.get('/api/admin/settlements', requireAdmin, async (req, res) => {
 });
 
 // =======================
-// USSD POOL (0011 → 0022 sequencing + manual bind)
+// USSD POOL
 // =======================
 app.get('/api/admin/ussd/pool/available', requireAdmin, async (req, res) => {
   try {
@@ -821,9 +806,9 @@ function resolveTarget(level, ids) {
 }
 
 // =======================
-// PUBLIC / SACCO / OWNER UTILITIES — read endpoints for dashboards
+// PUBLIC / SACCO / OWNER UTILITIES
 // =======================
-app.get('/api/public/saccos', async (req, res) => {
+app.get('/api/public/saccos', async (_req, res) => {
   try {
     const { data, error } = await sb.from('saccos').select('id,name').order('name');
     if (error) throw error;
@@ -937,7 +922,7 @@ app.get('/api/matatu/:matatuId/summary', async (req, res) => {
 });
 
 // =======================
-// MEMBERS API (link Supabase auth users to matatus / saccos)
+// MEMBERS API
 // =======================
 async function rpcLookupUser(emailOrPattern) {
   let rv = await sbAdmin.rpc('lookup_user_id_by_email', { p_email: emailOrPattern });
@@ -989,7 +974,7 @@ app.get('/members/of-matatu', requireAdmin, async (req, res) => {
 });
 
 // =======================
-// DAILY FEES (optional table `daily_fees`)
+// DAILY FEES
 // =======================
 app.post('/fees/record', async (req, res) => {
   try {
@@ -1066,14 +1051,14 @@ app.post('/flashpay/confirm', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-async function fetchLocal(path, body) {
-  const res = await fetch(`http://localhost:${PORT}${path}`, {
+async function fetchLocal(pathname, body) {
+  const res = await fetch(`http://localhost:${PORT}${pathname}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
   return await res.json();
 }
 
-// ---- Member-scoped (authenticated) reads for dashboards (aliases) ----
+// ---- Member-scoped reads (aliases) ----
 app.get('/u/my-saccos', requireUser, async (req,res)=>{
   const { data, error } = await sb
     .from('sacco_users').select('sacco_id, role, saccos(name,default_till)')
@@ -1113,6 +1098,11 @@ app.get('/u/sacco/:saccoId/summary', requireUser, requireSaccoMember, async (req
   const totals = (data||[]).reduce((a,r)=>{ a[r.type]=(a[r.type]||0)+Number(r.amount_kes); return a; },{});
   const fare=+totals.FARE||0, savings=+totals.SAVINGS||0, loan=+totals.LOAN_REPAY||0, saccofee=+totals.SACCO_FEE||0;
   res.json({ range:{from,to}, totals:{ ...totals, NET_TO_OWNER: +(fare-savings-loan-saccofee).toFixed(2) } });
+});
+
+// ---- Default route (optional) ----
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ---- Start server ----
