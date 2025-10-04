@@ -4,13 +4,15 @@
   if (document.querySelector('nav.tt-nav')) return;
 
   const links = [
-    { href: '/',                                label: 'Home',           icon: '🏠' },
-    { href: '/admin.html',                      label: 'My Admin',       icon: '👑' },
-    { href: '/sacco/admin-dashboard.html',      label: 'SACCO Admin',    icon: '🏢' },
-    { href: '/sacco/staff-dashboard.html',      label: 'SACCO Staff',    icon: '🧑‍💼' },
-    { href: '/matatu/owner-dashboard.html',     label: 'Matatu Owner',   icon: '🚌' },
-    { href: '/matatu/conductor-dashboard.html', label: 'Conductor',      icon: '🎫' },
-    { href: '/auth/role-select.html',           label: 'Logins',         icon: '🔐' }
+    { href: '/',                      label: 'Home',           icon: '🏠' },
+    { href: '/admin.html',            label: 'My Admin',       icon: '👑' },
+    { href: '/sacco/sacco.html',      label: 'SACCO Admin',    icon: '🏢' },
+    { href: '/sacco/staff.html',      label: 'SACCO Staff',    icon: '🧑‍💼' },
+    { href: '/matatu/owner.html',     label: 'Matatu Owner',   icon: '🚌' },
+    { href: '/matatu/conductor.html', label: 'Conductor',      icon: '🎫' },
+    { href: '/auth/role-select.html', label: 'Logins',         icon: '🔐' },
+    { href: '/auth/login.html',       label: 'Login',          icon: '🔐' },
+    { href: '/auth/logout.html',      label: 'Logout',         icon: '🚪' }
   ];
 
   // Inject styles once
