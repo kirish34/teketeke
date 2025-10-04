@@ -1,5 +1,6 @@
 -- =========================
 -- TekeTeke Core Schema (Supabase / Postgres)
+-- (your current schema, unchanged)
 -- =========================
 
 -- ---------- ORGS & USERS ----------
@@ -39,6 +40,11 @@ create table if not exists matatus (
 );
 create index if not exists matatus_sacco_idx on matatus(sacco_id);
 create index if not exists matatus_till_idx on matatus(till_number);
+
+-- (optional but recommended) ensure one matatu per till (when till is set)
+create unique index if not exists matatus_till_unique
+  on matatus(till_number)
+  where till_number is not null;
 
 create table if not exists cashiers (
   id uuid primary key default gen_random_uuid(),
@@ -120,3 +126,57 @@ create table if not exists pos_latest (
 insert into sacco_settings (sacco_id, fare_fee_flat_kes, savings_percent, sacco_daily_fee_kes, loan_repay_percent)
 select id, 2.50, 5.00, 50.00, 0.00 from saccos
 on conflict (sacco_id) do nothing;
+
+-- =============================================================
+-- NEW: USSD POOL (0011 → 0022 → … → 9999 sequencing + checks)
+-- =============================================================
+
+-- Table to manage 001..999 bases and their checksum (digital root)
+create table if not exists ussd_pool (
+  base text primary key,          -- '001'..'999'
+  checksum text not null,         -- '1'..'9' (digital root of base)
+  assigned boolean not null default false,
+  assigned_type text check (assigned_type in ('MATATU','SACCO','CASHIER')),
+  assigned_id uuid,
+  assigned_at timestamptz
+);
+
+-- Format/consistency guards
+alter table ussd_pool
+  add constraint if not exists ussd_base_format
+  check (base ~ '^[0-9]{3}$' and base <> '000');
+
+alter table ussd_pool
+  add constraint if not exists ussd_checksum_format
+  check (checksum ~ '^[1-9]$');
+
+-- checksum must equal digital-root of the 3 digits in base
+-- digital_root(sum) = ((sum - 1) % 9) + 1 for 1..27
+alter table ussd_pool
+  add constraint if not exists ussd_checksum_matches_base
+  check (
+    (checksum)::int = (
+      (( (substring(base from 1 for 1)::int
+        + substring(base from 2 for 1)::int
+        + substring(base from 3 for 1)::int) - 1) % 9) + 1
+    )
+  );
+
+-- keep assignment fields in sync
+alter table ussd_pool
+  add constraint if not exists ussd_assigned_fields
+  check (
+    (assigned = false and assigned_type is null and assigned_id is null)
+    or
+    (assigned = true  and assigned_type is not null and assigned_id is not null)
+  );
+
+-- helpful indexes
+create index if not exists ussd_pool_assigned_idx on ussd_pool(assigned, assigned_at desc);
+
+-- Seed 001..999 with correct checksums (idempotent)
+insert into ussd_pool(base, checksum)
+select lpad(n::text, 3, '0') as base,
+       (((n - 1) % 9) + 1)::text as checksum
+from generate_series(1, 999) as t(n)
+on conflict (base) do nothing;

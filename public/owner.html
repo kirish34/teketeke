@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TekeTeke – Matatu Owner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --brand:#1976d2; --brand-700:#135ba1; --bg:#f5f7fb; --panel:#fff;
+      --text:#0b0f19; --muted:#6b7280; --border:#e5e7eb; --ok:#065f46;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);margin:0;padding:20px}
+    h2{color:var(--brand);margin:0 0 14px}
+    section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    input,select,button{padding:10px;border:1px solid var(--border);border-radius:8px}
+    button{background:var(--brand);color:#fff;border:none;cursor:pointer}
+    button.ghost{background:#fff;color:var(--brand)}
+    .tabs{display:flex;gap:8px;margin:10px 0 0}
+    .tab{padding:10px 14px;background:var(--brand);color:#fff;border-radius:8px;cursor:pointer}
+    .tab.active{background:var(--brand-700)}
+    .panel{display:none;margin-top:12px}
+    .panel.active{display:block}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-weight:700;font-size:20px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:10px;border:1px solid var(--border);text-align:left;vertical-align:top}
+    th{background:var(--brand);color:#fff}
+    .mono{font-family:ui-monospace,Consolas,monospace}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+
+  <h2>Matatu Owner Dashboard</h2>
+
+  <!-- Add / manage my matatus -->
+  <section>
+    <div class="row">
+      <strong>Add your matatu</strong>
+      <input id="find_plate" placeholder="Plate e.g. KDA123A" />
+      <input id="find_till" placeholder="Till e.g. 987654" />
+      <button id="find_add">Find & Add</button>
+      <span class="muted" id="add_msg"></span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>My Matatus
+        <select id="matatuSelect"></select>
+      </label>
+      <button class="ghost" id="remove_current">Remove selected</button>
+      <span class="muted" id="state_msg"></span>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <label>From <input id="fromDate" type="date"></label>
+      <label>To <input id="toDate" type="date"></label>
+      <button id="applyRange">Apply</button>
+      <span class="muted" id="range_msg"></span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-panel="p_overview">Overview</div>
+      <div class="tab" data-panel="p_tx">Transactions</div>
+      <div class="tab" data-panel="p_savings">Savings</div>
+      <div class="tab" data-panel="p_loans">Loan Request</div>
+    </div>
+  </section>
+
+  <!-- OVERVIEW -->
+  <section id="p_overview" class="panel active">
+    <h3 style="margin-top:0">Summary</h3>
+    <div class="grid">
+      <div class="card"><div class="k">FARE (gross)</div><div class="v" id="sum_fare">0</div></div>
+      <div class="card"><div class="k">SAVINGS</div><div class="v" id="sum_savings">0</div></div>
+      <div class="card"><div class="k">LOAN REPAY</div><div class="v" id="sum_loan">0</div></div>
+      <div class="card"><div class="k">SACCO FEE</div><div class="v" id="sum_sacco">0</div></div>
+      <div class="card"><div class="k">NET TO OWNER</div><div class="v" id="sum_net">0</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <canvas id="summaryChart" height="110"></canvas>
+      <div class="muted" style="margin-top:6px">Chart shows an even split over the selected range (daily breakdown endpoint can refine later).</div>
+    </div>
+
+    <h3>Recent Passenger Payments</h3>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Passenger</th><th>Amount</th><th>Deducted (SAV+LOAN+FEE)</th></tr>
+      </thead>
+      <tbody id="pay_tbody"></tbody>
+    </table>
+  </section>
+
+  <!-- TRANSACTIONS -->
+  <section id="p_tx" class="panel">
+    <h3 style="margin-top:0">Transactions</h3>
+    <div class="row">
+      <label>Limit
+        <select id="txLimit">
+          <option>20</option><option selected>50</option><option>100</option>
+        </select>
+      </label>
+      <button class="ghost" id="reloadTx">Reload</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Fare</th><th>Service Fee</th><th>Status</th><th>Txn ID</th></tr>
+      </thead>
+      <tbody id="tx_tbody"></tbody>
+    </table>
+  </section>
+
+  <!-- SAVINGS -->
+  <section id="p_savings" class="panel">
+    <h3 style="margin-top:0">Savings</h3>
+    <p class="muted">Total savings for the selected date range (from ledger summary).</p>
+    <div class="grid">
+      <div class="card"><div class="k">SAVINGS total</div><div class="v" id="sav_total">0</div></div>
+      <div class="card"><div class="k">Average per day</div><div class="v" id="sav_avg">0</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <canvas id="savingsChart" height="110"></canvas>
+    </div>
+  </section>
+
+  <!-- LOANS -->
+  <section id="p_loans" class="panel">
+    <h3 style="margin-top:0">Loan Request</h3>
+    <div class="row">
+      <input id="loanAmount" type="number" placeholder="Amount (KES)" />
+      <select id="loanPlan"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
+      <button id="loanBtn" disabled>Request (coming soon)</button>
+      <span class="muted">This will be enabled when the loan endpoint is added.</span>
+    </div>
+  </section>
+
+<script>
+(function(){
+  // ---------- tiny helpers ----------
+  const $ = id => document.getElementById(id);
+  const fmt = n => Number(n||0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const todayISO = () => new Date().toISOString().slice(0,10);
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+
+  // storage format: [{id, plate, till}]
+  function loadMine(){ return JSON.parse(localStorage.getItem('ownerMatatus')||'[]'); }
+  function saveMine(list){ localStorage.setItem('ownerMatatus', JSON.stringify(list)); }
+
+  function setDatesDefault(){
+    $('toDate').value = todayISO();
+    $('fromDate').value = addDays(todayISO(), -6);
+  }
+
+  // API (no admin token required)
+  async function jget(p){ const r = await fetch(p); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.onclick=()=>{
+      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active'); $(t.dataset.panel).classList.add('active');
+    };
+  });
+
+  // Populate select
+  function renderSelect(){
+    const mine = loadMine();
+    const sel = $('matatuSelect');
+    sel.innerHTML = '';
+    mine.forEach(m=>{
+      const o=document.createElement('option');
+      o.value = m.id;
+      o.textContent = `${m.plate || '(no plate)'} — ${m.till || ''}`;
+      sel.appendChild(o);
+    });
+    $('state_msg').textContent = `${mine.length} saved`;
+  }
+
+  // Add by plate/till
+  $('find_add').onclick = async ()=>{
+    try{
+      const plate = $('find_plate').value.trim().toUpperCase();
+      const till  = $('find_till').value.trim();
+      if (!plate && !till) throw new Error('Enter plate or till');
+
+      const url = plate ? `/api/lookup/matatu?plate=${encodeURIComponent(plate)}`
+                        : `/api/lookup/matatu?till=${encodeURIComponent(till)}`;
+      const m = await jget(url);
+
+      const mine = loadMine();
+      if (!mine.find(x => x.id === m.id)){
+        mine.push({ id:m.id, plate:m.number_plate||'', till:m.till_number||'' });
+        saveMine(mine);
+        renderSelect();
+        $('matatuSelect').value = m.id;
+        $('add_msg').textContent = 'Added ✓';
+        setTimeout(()=> $('add_msg').textContent='', 1200);
+        await loadAllFor(m.id, m.till_number||'');
+      } else {
+        $('add_msg').textContent = 'Already in list';
+        setTimeout(()=> $('add_msg').textContent='', 1200);
+      }
+    }catch(e){
+      $('add_msg').textContent = e.message;
+      setTimeout(()=> $('add_msg').textContent='', 2000);
+    }
+  };
+
+  // Remove current
+  $('remove_current').onclick = ()=>{
+    const cur = $('matatuSelect').value;
+    if (!cur) return;
+    const mine = loadMine().filter(x=>x.id!==cur);
+    saveMine(mine);
+    renderSelect();
+    clearTablesAndTotals();
+  };
+
+  function clearTablesAndTotals(){
+    $('pay_tbody').innerHTML='';
+    $('tx_tbody').innerHTML='';
+    ['sum_fare','sum_savings','sum_loan','sum_sacco','sum_net','sav_total','sav_avg'].forEach(id=>$(id).textContent='0');
+    destroyChart('summaryChart'); destroyChart('savingsChart');
+  }
+
+  // Change selected matatu
+  $('matatuSelect').onchange = async ()=>{
+    const cur = $('matatuSelect').value;
+    const mine = loadMine();
+    const obj = mine.find(x=>x.id===cur) || {};
+    await loadAllFor(cur, obj.till||'');
+  };
+
+  // Apply date range
+  $('applyRange').onclick = async ()=>{
+    const cur = $('matatuSelect').value;
+    if (!cur) return;
+    const mine = loadMine();
+    const obj = mine.find(x=>x.id===cur) || {};
+    await Promise.all([loadSummary(cur), loadTx(cur), loadPayments(obj.till||'') , loadSavingsPanel(cur)]);
+  };
+
+  // Loaders
+  async function loadSummary(matatuId){
+    const from = $('fromDate').value, to = $('toDate').value;
+    const res = await jget(`/api/matatu/${matatuId}/summary?from=${from}&to=${to}`);
+    const t = res.totals || {};
+    $('sum_fare').textContent    = fmt(t.FARE || 0);
+    $('sum_savings').textContent = fmt(t.SAVINGS || 0);
+    $('sum_loan').textContent    = fmt(t.LOAN_REPAY || 0);
+    $('sum_sacco').textContent   = fmt(t.SACCO_FEE || 0);
+    const net = (t.FARE||0) - (t.SAVINGS||0) - (t.LOAN_REPAY||0) - (t.SACCO_FEE||0);
+    $('sum_net').textContent     = fmt(net);
+
+    // Overview chart (even split for now)
+    const days = enumerateDays(from, to);
+    renderChart('summaryChart', 'Net to Owner (KES)', days, evenSeries(net, days.length));
+  }
+
+  async function loadTx(matatuId){
+    const limit = Number($('txLimit').value||50);
+    const res = await jget(`/api/matatu/${matatuId}/transactions?limit=${limit}`);
+    const items = res.items || [];
+    const T = $('tx_tbody'); T.innerHTML='';
+    items.forEach(tx=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${new Date(tx.created_at).toLocaleString()}</td>
+        <td>${fmt(tx.fare_amount_kes||0)}</td>
+        <td>${fmt(tx.service_fee_kes||0)}</td>
+        <td>${tx.status}</td>
+        <td class="mono">${tx.id}</td>`;
+      T.appendChild(tr);
+    });
+  }
+
+  async function loadPayments(till){
+    const T = $('pay_tbody'); T.innerHTML='';
+    if (!till){ T.innerHTML = `<tr><td colspan="4" class="muted">No till set for this matatu.</td></tr>`; return; }
+    const rows = await jget(`/api/matatu/payments?till=${encodeURIComponent(till)}`);
+    (rows||[]).forEach(p=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${new Date(p.timestamp).toLocaleString()}</td>
+        <td>${p.phone||''}</td>
+        <td>${fmt(p.amount||0)}</td>
+        <td>${fmt(p.deducted||0)}</td>`;
+      T.appendChild(tr);
+    });
+  }
+
+  // Savings panel (uses summary totals)
+  async function loadSavingsPanel(matatuId){
+    const from = $('fromDate').value, to = $('toDate').value;
+    const res = await jget(`/api/matatu/${matatuId}/summary?from=${from}&to=${to}`);
+    const total = Number((res.totals||{}).SAVINGS || 0);
+    $('sav_total').textContent = fmt(total);
+    const days = Math.max(1, enumerateDays(from, to).length);
+    $('sav_avg').textContent = fmt(total / days);
+
+    renderChart('savingsChart', 'Savings (KES)', enumerateDays(from, to), evenSeries(total, days));
+  }
+
+  async function loadAllFor(matatuId, till){
+    await Promise.all([loadSummary(matatuId), loadTx(matatuId), loadPayments(till), loadSavingsPanel(matatuId)]);
+  }
+
+  // chart helpers
+  function enumerateDays(a,b){
+    const out=[]; let d=new Date(a+"T00:00:00"); const end=new Date(b+"T00:00:00");
+    while(d<=end){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+    return out;
+  }
+  function evenSeries(total, n){ const v = Number(total||0)/Math.max(1,n); return Array.from({length:n},()=>v); }
+  function renderChart(canvasId, label, labels, values){
+    const ctx = document.getElementById(canvasId);
+    if (ctx._inst) ctx._inst.destroy();
+    ctx._inst = new Chart(ctx, { type:'line',
+      data:{ labels, datasets:[{ label, data: values, borderColor:'#1976d2', backgroundColor:'transparent', tension:.25 }]},
+      options:{ responsive:true, scales:{ y:{ beginAtZero:true } } }
+    });
+  }
+  function destroyChart(id){ const c=$(id); if(c && c._inst){ c._inst.destroy(); c._inst=null; } }
+
+  // manual reload in Transactions tab
+  $('reloadTx').onclick = ()=>{
+    const cur = $('matatuSelect').value;
+    if (cur) loadTx(cur);
+  };
+
+  // init
+  async function init(){
+    try{
+      setDatesDefault();
+      renderSelect();
+      const mine = loadMine();
+      if (mine.length){
+        $('matatuSelect').value = mine[0].id;
+        await loadAllFor(mine[0].id, mine[0].till||'');
+      }
+    }catch(e){ console.error(e); }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

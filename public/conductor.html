@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TekeTeke – Conductor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --brand:#1976d2; --brand-700:#135ba1; --bg:#f6f7fb; --panel:#fff;
+      --text:#0b1220; --muted:#6b7280; --border:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);margin:0;padding:18px}
+    h2{color:var(--brand);margin:0 0 12px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    input,button,select{padding:10px;border:1px solid var(--border);border-radius:8px}
+    input{min-width:220px;background:#fff}
+    button{background:var(--brand);color:#fff;border:none;cursor:pointer}
+    button.ghost{background:#fff;color:var(--brand)}
+    button.warn{background:#b45309}
+    button.bad{background:#b91c1c}
+    .muted{color:var(--muted)}
+    .summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+    .stat{background:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;padding:10px}
+    .stat h4{margin:0 0 6px;color:#0d47a1;font-size:14px}
+    .stat .big{font-weight:800;font-size:22px}
+    .table-wrap{overflow:auto;margin-top:12px;border:1px solid var(--border);border-radius:10px}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+    th{background:var(--brand);color:#fff;position:sticky;top:0}
+    .right{margin-left:auto}
+    .mono{font-family:ui-monospace,Consolas,monospace}
+    .small{font-size:12px}
+    .ok{color:#065f46}
+    .warn-txt{color:#b45309}
+    @media (max-width:760px){ .summary{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <h2>Matatu Staff – Live Payments</h2>
+
+  <!-- Till setup -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="row">
+      <strong> Till number </strong>
+      <input id="till" placeholder="e.g. 987654" />
+      <button id="save">Save</button>
+      <span id="save_state" class="muted"></span>
+      <span class="right muted small">Saved only in this browser.</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="row">
+        <input type="checkbox" id="auto" style="width:auto;margin-right:6px"> Auto-refresh
+      </label>
+      <select id="interval" style="width:auto">
+        <option value="5">5s</option>
+        <option value="10">10s</option>
+        <option value="15" selected>15s</option>
+        <option value="30">30s</option>
+      </select>
+      <button class="ghost" id="refresh">Refresh now</button>
+      <span id="last" class="muted small"></span>
+    </div>
+  </div>
+
+  <!-- Trip controls -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="row">
+      <strong>Trip:</strong>
+      <span id="trip_status" class="muted">Not started</span>
+      <button id="trip_start" class="ok">Start / Reset Trip</button>
+      <button id="trip_end" class="warn">End Trip</button>
+      <button id="trip_share" class="ghost">Copy Share Link</button>
+      <span class="right small muted">Trip is tracked locally from its start time.</span>
+    </div>
+  </div>
+
+  <!-- Totals -->
+  <div class="summary">
+    <div class="stat">
+      <h4>Total Received Today</h4>
+      <div class="big" id="totalAmount">0</div>
+      <div class="small muted">Sum of fare amounts</div>
+    </div>
+    <div class="stat">
+      <h4>Total Deducted Today</h4>
+      <div class="big" id="deductedAmount">0</div>
+      <div class="small muted">Sacco fee + savings + loan</div>
+    </div>
+    <div class="stat">
+      <h4>Trip Total</h4>
+      <div class="big" id="tripTotal">0</div>
+      <div class="small" id="tripRange" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- Tables -->
+  <div class="table-wrap card">
+    <table>
+      <thead>
+        <tr>
+          <th>Payer</th>
+          <th>Phone</th>
+          <th>Amount</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="4" class="muted">No data yet. Set till and refresh.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="table-wrap card" style="margin-top:12px">
+    <table>
+      <thead>
+        <tr>
+          <th colspan="4">Trip Payments</th>
+        </tr>
+        <tr>
+          <th>Payer</th>
+          <th>Phone</th>
+          <th>Amount</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="tripBody">
+        <tr><td colspan="4" class="muted">Trip not started.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const fmt = n => Number(n||0).toLocaleString('en-KE',{minimumFractionDigits:0,maximumFractionDigits:0});
+
+  // keys
+  const LS_TILL  = 'matatuTill';
+  const LS_AUTO  = 'tt_conductor_auto';
+  const LS_INT   = 'tt_conductor_interval';
+  const LS_TRIP  = 'tt_trip_start_iso'; // ISO timestamp
+
+  // helpers
+  const maskPhone = p => (!p? '' : (String(p).length<7? String(p) : String(p).slice(0,3)+'****'+String(p).slice(-3)));
+
+  function getTill(){ return localStorage.getItem(LS_TILL) || ''; }
+  function setTill(v){ localStorage.setItem(LS_TILL, v); }
+
+  function getAuto(){ return localStorage.getItem(LS_AUTO) === '1'; }
+  function setAuto(v){ localStorage.setItem(LS_AUTO, v ? '1':'0'); }
+
+  function getInt(){ return Number(localStorage.getItem(LS_INT) || 15); }
+  function setInt(v){ localStorage.setItem(LS_INT, String(v||15)); }
+
+  function getTripStart(){ return localStorage.getItem(LS_TRIP) || ''; }
+  function setTripStart(iso){ if (iso) localStorage.setItem(LS_TRIP, iso); else localStorage.removeItem(LS_TRIP); }
+
+  function updateTripUI() {
+    const iso = getTripStart();
+    if (iso){
+      const d = new Date(iso);
+      $('trip_status').textContent = 'Started: ' + d.toLocaleTimeString();
+      $('tripRange').textContent  = 'From ' + d.toLocaleTimeString();
+    } else {
+      $('trip_status').textContent = 'Not started';
+      $('tripRange').textContent = '';
+      $('tripTotal').textContent = '0';
+      $('tripBody').innerHTML = `<tr><td colspan="4" class="muted">Trip not started.</td></tr>`;
+    }
+  }
+
+  async function load(){
+    const till = $('till').value.trim();
+    const TB = $('tbody');
+    const TripTB = $('tripBody');
+
+    if (!till){
+      TB.innerHTML = `<tr><td colspan="4" class="muted">Enter till number to load payments.</td></tr>`;
+      $('totalAmount').textContent = '0';
+      $('deductedAmount').textContent = '0';
+      updateTripUI();
+      return;
+    }
+
+    try{
+      const r = await fetch(`/api/matatu/payments?till=${encodeURIComponent(till)}`);
+      const data = await r.json(); // [{name, phone, amount, timestamp, deducted}]
+      if (!Array.isArray(data)){
+        TB.innerHTML = `<tr><td colspan="4" class="warn-txt">Unexpected response</td></tr>`;
+        return;
+      }
+
+      // Render ALL (today)
+      let total=0, ded=0;
+      if (data.length === 0){
+        TB.innerHTML = `<tr><td colspan="4" class="muted">No payments yet today.</td></tr>`;
+      } else {
+        TB.innerHTML = '';
+        data.forEach(row=>{
+          const amt = Number(row.amount || 0);
+          total += amt;
+          ded   += Number(row.deducted || 0);
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${row.name || 'Passenger'}</td>
+            <td class="mono">${maskPhone(row.phone)}</td>
+            <td class="mono">${fmt(amt)}</td>
+            <td>${new Date(row.timestamp).toLocaleTimeString()}</td>
+          `;
+          TB.appendChild(tr);
+        });
+      }
+      $('totalAmount').textContent = fmt(total);
+      $('deductedAmount').textContent = fmt(ded);
+
+      // Render TRIP (filter by trip start)
+      const tripStartIso = getTripStart();
+      if (tripStartIso){
+        const t0 = new Date(tripStartIso).getTime();
+        const tripRows = data.filter(p => new Date(p.timestamp).getTime() >= t0);
+        let tripTotal = 0;
+
+        if (tripRows.length === 0){
+          TripTB.innerHTML = `<tr><td colspan="4" class="muted">No trip payments yet.</td></tr>`;
+        } else {
+          TripTB.innerHTML = '';
+          tripRows.forEach(row=>{
+            const amt = Number(row.amount || 0);
+            tripTotal += amt;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${row.name || 'Passenger'}</td>
+              <td class="mono">${maskPhone(row.phone)}</td>
+              <td class="mono">${fmt(amt)}</td>
+              <td>${new Date(row.timestamp).toLocaleTimeString()}</td>
+            `;
+            TripTB.appendChild(tr);
+          });
+        }
+        $('tripTotal').textContent = fmt(tripTotal);
+      }
+
+      $('last').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+    }catch(e){
+      console.error(e);
+      TB.innerHTML = `<tr><td colspan="4" class="warn-txt">Failed to load: ${e.message}</td></tr>`;
+    }
+  }
+
+  // auto-refresh timer
+  let timer = null;
+  function armTimer(){
+    if (timer) clearInterval(timer);
+    if ($('auto').checked){
+      const sec = Number($('interval').value || 15);
+      timer = setInterval(load, sec*1000);
+    }
+  }
+
+  // share link with till (and optional trip start)
+  function buildShareURL(){
+    const url = new URL(window.location.href);
+    url.searchParams.set('till', $('till').value.trim());
+    const t0 = getTripStart();
+    if (t0) url.searchParams.set('tripStart', t0);
+    return url.toString();
+  }
+
+  // events
+  $('save').onclick = ()=>{
+    const v = $('till').value.trim();
+    if (!v) return;
+    setTill(v);
+    $('save_state').textContent = 'saved ✓';
+    setTimeout(()=> $('save_state').textContent = '', 1200);
+    load();
+  };
+  $('refresh').onclick = load;
+  $('auto').onchange = ()=>{ setAuto($('auto').checked); armTimer(); };
+  $('interval').onchange = ()=>{ setInt($('interval').value); armTimer(); };
+
+  // Trip buttons
+  $('trip_start').onclick = ()=>{
+    const nowIso = new Date().toISOString();
+    setTripStart(nowIso);
+    updateTripUI();
+    load();
+  };
+  $('trip_end').onclick = ()=>{
+    setTripStart('');
+    updateTripUI();
+    load();
+  };
+  $('trip_share').onclick = async ()=>{
+    const link = buildShareURL();
+    try{
+      await navigator.clipboard.writeText(link);
+      $('trip_status').textContent = 'Link copied ✓';
+      setTimeout(updateTripUI, 1200);
+    }catch(_){
+      prompt('Copy link:', link);
+    }
+  };
+
+  // init (read querystring till & tripStart if provided)
+  (function init(){
+    const params = new URLSearchParams(window.location.search);
+    const tillQS = params.get('till');
+    const tripQS = params.get('tripStart');
+
+    $('till').value = tillQS || getTill();
+    if (tillQS) setTill(tillQS);
+
+    if (tripQS){ setTripStart(tripQS); }
+    $('auto').checked = getAuto();
+    $('interval').value = String(getInt());
+
+    updateTripUI();
+    load();
+    armTimer();
+  })();
+})();
+</script>
+</body>
+</html>

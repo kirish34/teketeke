@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TekeTeke — Choose Space</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1020;color:#dde3ee;margin:0;min-height:100vh}
+    header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #1f2a44}
+    .wrap{max-width:900px;margin:20px auto;padding:0 16px}
+    h1{font-size:22px;margin:10px 0 16px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+    .card{border:1px solid #1f2a44;border-radius:14px;padding:14px;background:#0f172a}
+    .tag{display:inline-block;background:#1d243a;border:1px solid #2d3656;padding:2px 8px;border-radius:999px;font-size:11px;margin-right:6px}
+    a.btn{display:inline-block;margin-top:10px;padding:10px 12px;border-radius:10px;background:#06b6d4;color:#042025;text-decoration:none;font-weight:700}
+    button{background:#29324d;border:1px solid #344062;color:#cfd7ea;padding:8px 10px;border-radius:8px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <header>
+    <div>TekeTeke</div>
+    <div>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </header>
+  <div class="wrap">
+    <h1>Choose where to go</h1>
+    <div id="info" class="grid"></div>
+  </div>
+
+<script>
+const TOKEN_KEY='TT_TOKEN';
+
+function logout(){
+  localStorage.removeItem(TOKEN_KEY);
+  location.href='/login.html';
+}
+
+async function authed(path){
+  const t = localStorage.getItem(TOKEN_KEY);
+  const r = await fetch(path,{headers:{Authorization:'Bearer '+t}});
+  if (r.status===401){logout();return;}
+  return r.json();
+}
+
+(async function init(){
+  const data = await authed('/api/my-roles');
+  const box = document.querySelector('#info');
+  const saccos = data?.saccos||[];
+  const mats = data?.matatus||[];
+
+  if (!saccos.length && !mats.length){
+    box.innerHTML = '<div class="card">No roles yet. Ask your SACCO admin to add you.</div>';
+    return;
+  }
+
+  const items = [];
+
+  saccos.forEach(s=>{
+    items.push(`
+      <div class="card">
+        <div class="tag">SACCO</div> <div class="tag">${s.role}</div>
+        <h3 style="margin:8px 0 4px">${s.sacco_name||'Sacco'}</h3>
+        <div style="font-size:12px;color:#9fb0cc">ID: ${s.sacco_id}</div>
+        <a class="btn" href="/dashboard-sacco.html?sid=${encodeURIComponent(s.sacco_id)}">Open SACCO dashboard</a>
+      </div>`);
+  });
+
+  mats.forEach(m=>{
+    items.push(`
+      <div class="card">
+        <div class="tag">MATATU</div> <div class="tag">${m.member_role}</div>
+        <h3 style="margin:8px 0 4px">Plate ${m.plate||''}</h3>
+        <div style="font-size:12px;color:#9fb0cc">ID: ${m.matatu_id}</div>
+        <a class="btn" href="/dashboard-matatu.html?mid=${encodeURIComponent(m.matatu_id)}">Open Matatu dashboard</a>
+      </div>`);
+  });
+
+  box.innerHTML = items.join('');
+})();
+</script>
+</body>
+</html>

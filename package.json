@@ -2,16 +2,21 @@
   "name": "teketeke",
   "version": "1.0.0",
   "main": "server.js",
+  "license": "MIT",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "NODE_ENV=development node server.js"
+    "dev": "cross-env NODE_ENV=development node server.js",
+    "start": "cross-env NODE_ENV=production node server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0"
   }
 }

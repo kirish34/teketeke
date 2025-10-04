@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Matatu Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1020;color:#e7edf7;margin:0}
+    header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #1f2a44}
+    .wrap{max-width:1000px;margin:20px auto;padding:0 16px}
+    pre{background:#0f172a;border:1px solid #1f2a44;border-radius:12px;padding:12px;overflow:auto}
+    button{background:#29324d;border:1px solid #344062;color:#cfd7ea;padding:8px 10px;border-radius:8px;cursor:pointer}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#122042;border:1px solid #2b3a62;font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <div>Matatu Dashboard</div>
+    <div>
+      <span id="mid" class="pill"></span>
+      <button onclick="goChoose()">Switch</button>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </header>
+  <div class="wrap">
+    <h3>Summary (today)</h3>
+    <pre id="sum">Loading…</pre>
+
+    <h3>Latest Transactions</h3>
+    <pre id="tx">Loading…</pre>
+  </div>
+
+<script>
+const TOKEN_KEY='TT_TOKEN';
+function mid(){ return new URLSearchParams(location.search).get('mid'); }
+function logout(){ localStorage.removeItem(TOKEN_KEY); location.href='/login.html'; }
+function goChoose(){ location.href='/choose.html'; }
+
+async function authed(path){
+  const t = localStorage.getItem(TOKEN_KEY);
+  const r = await fetch(path,{headers:{Authorization:'Bearer '+t}});
+  if (r.status===401){ logout(); return; }
+  return r.json();
+}
+
+(async function init(){
+  const m = mid(); if(!m){ location.href='/choose.html'; return; }
+  document.querySelector('#mid').textContent = 'Matatu: '+m;
+
+  // Public summary endpoints are /api/matatu/... but we’ll use the sacco-guarded ones later if needed
+  const sum = await authed(`/api/matatu/${encodeURIComponent(m)}/summary`);
+  document.querySelector('#sum').textContent = JSON.stringify(sum,null,2);
+
+  const tx = await authed(`/api/matatu/${encodeURIComponent(m)}/transactions?limit=20`);
+  document.querySelector('#tx').textContent = JSON.stringify(tx.items||[],null,2);
+})();
+</script>
+</body>
+</html>

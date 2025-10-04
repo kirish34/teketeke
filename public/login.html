@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TekeTeke — Login</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;height:100vh;margin:0}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:14px;max-width:360px;width:92%;padding:22px;box-shadow:0 10px 35px rgba(0,0,0,.35)}
+    h1{margin:0 0 10px;font-size:22px}
+    label{display:block;margin:12px 0 6px;color:#cbd5e1;font-size:13px}
+    input,select{width:100%;padding:12px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
+    button{width:100%;padding:12px 14px;border-radius:10px;border:0;background:#10b981;color:#04110a;font-weight:700;margin-top:14px;cursor:pointer}
+    .muted{color:#94a3b8;font-size:12px;margin-top:8px}
+    .err{background:#3f1a1a;border:1px solid #b91c1c;color:#fecaca;padding:10px;border-radius:10px;display:none;margin-bottom:10px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Sign in</h1>
+    <div id="err" class="err"></div>
+    <label>Email</label>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="username" />
+    <label>Password</label>
+    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+    <button id="loginBtn">Continue</button>
+    <div class="muted">You’ll be routed to your SACCO or Matatu dashboard based on your role.</div>
+  </div>
+
+<script>
+const TOKEN_KEY = 'TT_TOKEN';
+const USER_KEY  = 'TT_USER';
+
+function saveAuth({ access_token, user }) {
+  localStorage.setItem(TOKEN_KEY, access_token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user||{}));
+}
+
+async function api(path, opts={}) {
+  const res = await fetch(path, { headers:{'Content-Type':'application/json', ...(opts.headers||{})}, ...opts });
+  return res.json();
+}
+async function authed(path) {
+  const t = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(path, { headers:{'Authorization':'Bearer '+t} });
+  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); location.href='/login.html'; return; }
+  return res.json();
+}
+
+async function routeByRole() {
+  const me = await authed('/api/my-roles');
+  if (!me) return;
+
+  const saccos = me.saccos||[];
+  const mats = me.matatus||[];
+
+  // If user has both or multiple, send to chooser
+  const multi = (saccos.length + mats.length) > 1;
+  if (multi) {
+    location.href = '/choose.html';
+    return;
+  }
+
+  if (saccos.length === 1) {
+    const sid = saccos[0].sacco_id;
+    location.href = '/dashboard-sacco.html?sid='+encodeURIComponent(sid);
+    return;
+  }
+  if (mats.length === 1) {
+    const mid = mats[0].matatu_id;
+    location.href = '/dashboard-matatu.html?mid='+encodeURIComponent(mid);
+    return;
+  }
+
+  // No roles yet, just land on chooser (it will say “no roles”).
+  location.href = '/choose.html';
+}
+
+document.querySelector('#loginBtn').addEventListener('click', async ()=>{
+  const email = document.querySelector('#email').value.trim();
+  const password = document.querySelector('#password').value;
+  const box = document.querySelector('#err');
+  box.style.display='none';
+
+  if (!email || !password) {
+    box.textContent = 'Email and password required';
+    box.style.display='block';
+    return;
+  }
+
+  try {
+    const r = await api('/auth/login', { method:'POST', body:JSON.stringify({ email, password }) });
+    if (!r.ok && !r.success) throw new Error(r.error || 'Login failed');
+
+    const token = r.access_token || r.session?.access_token;
+    if (!token) throw new Error('No access token returned');
+    saveAuth({ access_token: token, user: r.user });
+
+    await routeByRole();
+  } catch (e) {
+    box.textContent = e.message || 'Login failed';
+    box.style.display='block';
+  }
+});
+
+// If already logged in, skip
+(function auto() {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (t) routeByRole();
+})();
+</script>
+</body>
+</html>
