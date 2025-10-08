@@ -3,11 +3,17 @@ require('dotenv').config();
 
 // ---- Core imports ----
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
-const morgan = require('morgan');
+const pinoHttp = require('pino-http');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
+const YAML = require('yaml');
+const swaggerUi = require('swagger-ui-express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { randomUUID } = require('crypto');
 
 // ---- Env ----
 const {
@@ -19,6 +25,18 @@ const {
   SUPABASE_JWT_SECRET,
   ADMIN_TOKEN = 'claire.1leah.2seline.3zara.4'
 } = process.env;
+
+// Basic env validation (no secrets logged)
+const missingEnv = [];
+if (!PORT) missingEnv.push('PORT');
+if (!SUPABASE_URL) missingEnv.push('SUPABASE_URL');
+if (!SUPABASE_ANON_KEY) missingEnv.push('SUPABASE_ANON_KEY');
+if (!SUPABASE_SERVICE_ROLE) missingEnv.push('SUPABASE_SERVICE_ROLE');
+if (!ADMIN_TOKEN) missingEnv.push('ADMIN_TOKEN');
+if (missingEnv.length) {
+  console.error('[ENV] Missing required vars:', missingEnv.join(', '));
+  process.exit(1);
+}
 
 // ---- Global fetch fallback (Node < 18) ----
 (async () => {
@@ -33,10 +51,198 @@ const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { pers
 
 // ---- App setup ----
 const app = express();
-app.use(cors());
+app.use(helmet());
+const allowed = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: function (origin, cb) {
+    if (!origin || !allowed.length) return cb(null, true);
+    if (allowed.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS: ' + origin));
+  },
+  credentials: true,
+  exposedHeaders: ['X-Request-ID'],
+  methods: ['GET','POST','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','x-admin-token']
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
+// Request ID middleware
+app.use((req, _res, next) => {
+  const hdr = req.headers['x-request-id'];
+  req.id = typeof hdr === 'string' && hdr.trim() ? hdr.trim() : cryptoRandomId();
+  next();
+});
+
+// structured logs with pino
+const pretty = process.env.PRETTY_LOGS === '1' && NODE_ENV !== 'production';
+app.use(
+  pinoHttp({
+    autoLogging: { ignore: (req) => req.url === '/ping' },
+    customProps: (req, res) => ({
+      request_id: req.id,
+      user_id: req.user?.id || null,
+      route: req.route?.path || null,
+      statusCode: res.statusCode,
+    }),
+    transport: pretty
+      ? { target: 'pino-pretty', options: { colorize: true, translateTime: true, singleLine: true } }
+      : undefined,
+    serializers: {
+      req(req) {
+        return { method: req.method, url: req.url, id: req.id, headers: minimalReqHeaders(req.headers) };
+      },
+      res(res) { return { statusCode: res.statusCode }; },
+    },
+  })
+);
+
+// expose request id
+app.use((req, res, next) => { res.setHeader('X-Request-ID', req.id); next(); });
+
+// ----- OpenAPI docs (/docs, /openapi.json)
+const openapiPath = path.join(__dirname, 'openapi.yaml');
+let openapiDoc = {};
+try {
+  const raw = fs.readFileSync(openapiPath, 'utf8');
+  openapiDoc = YAML.parse(raw);
+} catch (e) {
+  console.warn('[OpenAPI] Could not load openapi.yaml:', e.message);
+  openapiDoc = { openapi: '3.0.3', info: { title: 'TekeTeke API', version: 'unknown' } };
+}
+if (NODE_ENV !== 'production') {
+  try {
+    fs.watch(openapiPath, { persistent: false }, () => {
+      try {
+        const raw = fs.readFileSync(openapiPath, 'utf8');
+        openapiDoc = YAML.parse(raw);
+        console.log('[OpenAPI] Reloaded openapi.yaml');
+      } catch (e) {
+        console.warn('[OpenAPI] Reload failed:', e.message);
+      }
+    });
+  } catch {}
+}
+app.get('/openapi.json', (_req, res) => res.json(openapiDoc));
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
+  explorer: true,
+  swaggerOptions: {
+    displayRequestDuration: true,
+    docExpansion: 'none',
+    persistAuthorization: true,
+    // Inject local tokens into every request if present (runs in browser)
+    requestInterceptor: (req) => {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const bearer = window.localStorage.getItem('auth_token');
+          const root   = window.localStorage.getItem('tt_root_token');
+          if (bearer && !req.headers.Authorization) {
+            req.headers.Authorization = `Bearer ${bearer}`;
+          }
+          if (root && !req.headers['x-admin-token']) {
+            req.headers['x-admin-token'] = root;
+          }
+        }
+      } catch (_) {}
+      return req;
+    },
+  },
+  customCss: '.topbar { display:none }',
+  customSiteTitle: 'TekeTeke API Docs',
+  customJs: '/docs-inject.js',
+}));
+
+// Swagger UI (light) — no token auto-injection
+app.use('/docs/light', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
+  explorer: true,
+  swaggerOptions: {
+    displayRequestDuration: true,
+    docExpansion: 'none',
+    persistAuthorization: true,
+  },
+  customCss: '.topbar { display:none }',
+  customSiteTitle: 'TekeTeke API Docs (Light)'
+}));
+
+// Tiny UI injector for /docs to add a "Use tokens from browser" button
+app.get('/docs-inject.js', (_req, res) => {
+  res.type('application/javascript').send(`
+    (function(){
+      function addBtn(){
+        var container = document.querySelector('.swagger-ui .information-container');
+        if (!container || document.getElementById('useLocalTokensBtn')) return;
+        var b = document.createElement('button');
+        b.id = 'useLocalTokensBtn';
+        b.textContent = 'Use tokens from browser';
+        b.style.margin='6px 0 0 0'; b.style.padding='6px 10px';
+        b.onclick = function(){
+          try{
+            var bearer = localStorage.getItem('auth_token')||'';
+            var root   = localStorage.getItem('tt_root_token')||'';
+            if (!bearer && !root) { alert('No tokens in localStorage'); return; }
+            var btn = document.querySelector('.auth-wrapper .authorize');
+            if (btn) btn.click();
+            setTimeout(function(){
+              document.querySelectorAll('input[placeholder="api_key"]').forEach(function(el){
+                if (el.closest('.modal-ux-content').textContent.includes('x-admin-token')) el.value = root;
+              });
+              document.querySelectorAll('input[type="text"]').forEach(function(el){
+                if (el.placeholder && el.placeholder.toLowerCase().includes('bearer')) el.value = 'Bearer ' + bearer;
+              });
+            }, 200);
+          }catch(e){ console.error(e); }
+        };
+        container.appendChild(b);
+      }
+      var iv = setInterval(addBtn, 500);
+      setTimeout(function(){ clearInterval(iv); }, 6000);
+    })();
+  `);
+});
+
+// ---- Redoc (public) — zero dependency via CDN
+app.get('/redoc', (_req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>TekeTeke API — ReDoc</title>
+    <style>
+      body { margin:0; padding:0; }
+      .topbar { position:fixed; top:0; left:0; right:0; height:48px; display:flex; align-items:center; gap:12px; padding:0 12px; background:#0b1020; color:#cfe3ff; z-index:10; }
+      .topbar a { color:#cfe3ff; text-decoration:none; font-weight:600; }
+      redoc { position:absolute; top:48px; left:0; right:0; bottom:0; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/redoc@2.1.5/bundles/redoc.standalone.js"></script>
+  </head>
+  <body>
+    <div class="topbar">
+      <div>TekeTeke API</div>
+      <a href="/docs">Swagger UI</a>
+      <a href="/openapi.json">openapi.json</a>
+    </div>
+    <div id="redoc"></div>
+    <script>
+      Redoc.init('/openapi.json', {
+        expandResponses: '200,201',
+        onlyRequiredInSamples: true,
+        theme: {
+          spacing: { unit: 6 },
+          typography: { fontSize: '14px', lineHeight: '1.55' },
+          codeBlock: { backgroundColor: '#0b1020', textColor: '#cfe3ff' },
+          colors: {
+            primary: { main: '#1976d2' },
+            http: { get:'#4caf50', post:'#1976d2', put:'#ff9800', delete:'#f44336' },
+            text: { primary:'#e5e7eb', secondary:'#cbd5e1' },
+            background: { main:'#0f172a', contrast:'#111827' }
+          }
+        }
+      }, document.getElementById('redoc'));
+      document.body.style.background = '#0f172a';
+    </script>
+  </body>
+</html>`);
+});
 
 // ---- Static dashboards ----
 app.use(express.static(path.join(__dirname, 'public')));
@@ -111,17 +317,63 @@ function fullCode(prefix, base, check) { const p = prefix || '*001*'; return `${
 
 // ---- Health ----
 app.get('/health', (req, res) => res.json({ ok: true, env: NODE_ENV, time: new Date().toISOString() }));
+app.get('/__health', (_req,res)=>{
+  const started = process.uptime();
+  return res.json({
+    success: true,
+    data: {
+      uptime_seconds: Math.round(started),
+      env: {
+        NODE_ENV,
+        has_SUPABASE_URL: !!SUPABASE_URL,
+        has_SUPABASE_ANON_KEY: !!SUPABASE_ANON_KEY,
+        has_SUPABASE_SERVICE_ROLE: !!SUPABASE_SERVICE_ROLE,
+        has_ADMIN_TOKEN: !!ADMIN_TOKEN,
+      }
+    }
+  });
+});
+
+// Version & build info
+app.get('/__version', (_req, res) => {
+  try {
+    const pkg = require('./package.json');
+    const sha = process.env.GIT_SHA || 'local';
+    return res.json({
+      name: pkg.name,
+      version: pkg.version,
+      git_sha: sha,
+      node: process.version,
+      env: NODE_ENV,
+      time: new Date().toISOString()
+    });
+  } catch (e) {
+    return res.json({ name: 'teketeke', version: 'unknown', git_sha: process.env.GIT_SHA || 'local' });
+  }
+});
+
+// Simple heartbeat
+app.get('/ping', (_req, res) => res.send('pong'));
 
 // =======================
 // AUTH + ROLES
 // =======================
 app.get('/config.json', (req, res) => { res.json({ SUPABASE_URL, SUPABASE_ANON_KEY }); });
 
+// standard response helpers
+const ok = (res, data) => res.json({ success: true, data });
+const fail = (res, status, msg) => res.status(status).json({ success: false, error: msg });
+const sanitizeErr = (e)=>{
+  const m = (e && e.message) ? String(e.message) : 'Unexpected error';
+  // avoid leaking SQL/snippet content
+  return m.length > 300 ? m.slice(0,300) + '…' : m;
+};
+
 async function requireUser(req, res, next) {
   try {
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: 'No token' });
+    if (!token) return fail(res, 401, 'Unauthorized');
 
     let user = null;
     if (SUPABASE_JWT_SECRET) {
@@ -138,13 +390,13 @@ async function requireUser(req, res, next) {
     req.user = user;
     next();
   } catch (e) {
-    res.status(401).json({ error: 'Unauthorized', detail: e.message });
+    fail(res, 401, 'Unauthorized');
   }
 }
 
 function requireAdmin(req, res, next) {
   const token = req.headers['x-admin-token'];
-  if (!token || token !== ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token || token !== ADMIN_TOKEN) return fail(res, 401, 'Unauthorized');
   next();
 }
 
@@ -286,8 +538,8 @@ app.post('/api/auth/logout', (_req, res) => res.json({ ok: true }));
 // Who am I & roles
 app.get('/api/me', requireUser, (req, res) => res.json({ id: req.user.id, email: req.user.email }));
 app.get('/api/my-roles', requireUser, async (req, res) => {
-  try { res.json({ saccos: await getSaccoRoles(req.user.id), matatus: await getMatatuRoles(req.user.id) }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try { return ok(res, { saccos: await getSaccoRoles(req.user.id), matatus: await getMatatuRoles(req.user.id) }); }
+  catch (e) { return fail(res, 500, sanitizeErr(e)); }
 });
 app.get('/api/my-saccos', requireUser, async (req, res) => {
   try { res.json({ items: await getSaccoRoles(req.user.id) }); }
@@ -301,6 +553,37 @@ app.get('/api/my-matatus', requireUser, async (req, res) => {
 // =======================
 // ADMIN: SACCOS / MATATUS / CASHIERS / RULESETS
 // =======================
+// List Saccos (search + pagination)
+app.get('/api/admin/saccos', requireAdmin, async (req, res) => {
+  try {
+    const { q = '', limit = 100, offset = 0 } = req.query;
+    let query = sb
+      .from('saccos')
+      .select('id,name,contact_name,contact_phone,contact_email,default_till,created_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+    if (q) query = query.ilike('name', `%${q}%`);
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return res.json({ success: true, items: data || [], count: count || 0 });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
+});
+
+// List Matatus (optional sacco filter + pagination)
+app.get('/api/admin/matatus', requireAdmin, async (req, res) => {
+  try {
+    const { sacco_id = '', limit = 200, offset = 0 } = req.query;
+    let query = sb
+      .from('matatus')
+      .select('id,number_plate,owner_name,owner_phone,vehicle_type,tlb_number,till_number,sacco_id,created_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+    if (sacco_id) query = query.eq('sacco_id', sacco_id);
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return res.json({ success: true, items: data || [], count: count || 0 });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
+});
 app.post('/api/admin/register-sacco', requireAdmin, async (req, res) => {
   try {
     const { name, contact_name, contact_phone, contact_email, default_till } = req.body || {};
@@ -312,8 +595,8 @@ app.post('/api/admin/register-sacco', requireAdmin, async (req, res) => {
       .single();
     if (error) throw error;
     await sbAdmin.from('sacco_settings').upsert({ sacco_id: data.id }).eq('sacco_id', data.id);
-    res.json({ success: true, id: data.id });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { id: data.id });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/update-sacco', requireAdmin, async (req, res) => {
@@ -322,16 +605,16 @@ app.post('/api/admin/update-sacco', requireAdmin, async (req, res) => {
     if (!id) return res.status(400).json({ success: false, error: 'id required' });
     const { error } = await sbAdmin.from('saccos').update(fields).eq('id', id);
     if (error) throw error;
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { updated: true });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.delete('/api/admin/delete-sacco/:id', requireAdmin, async (req, res) => {
   try {
     const { error } = await sbAdmin.from('saccos').delete().eq('id', req.params.id);
     if (error) throw error;
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { deleted: true });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/register-matatu', requireAdmin, async (req, res) => {
@@ -344,8 +627,8 @@ app.post('/api/admin/register-matatu', requireAdmin, async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    res.json({ success: true, id: data.id });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { id: data.id });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/update-matatu', requireAdmin, async (req, res) => {
@@ -354,16 +637,16 @@ app.post('/api/admin/update-matatu', requireAdmin, async (req, res) => {
     if (!id) return res.status(400).json({ success: false, error: 'id required' });
     const { error } = await sbAdmin.from('matatus').update(fields).eq('id', id);
     if (error) throw error;
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { updated: true });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.delete('/api/admin/delete-matatu/:id', requireAdmin, async (req, res) => {
   try {
     const { error } = await sbAdmin.from('matatus').delete().eq('id', req.params.id);
     if (error) throw error;
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { deleted: true });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/cashier', requireAdmin, async (req, res) => {
@@ -377,8 +660,8 @@ app.post('/api/admin/cashier', requireAdmin, async (req, res) => {
 });
 
 app.get('/api/admin/rulesets/:saccoId', requireAdmin, async (req, res) => {
-  try { res.json({ success: true, rules: await getRuleset(req.params.saccoId) }); }
-  catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  try { return ok(res, { rules: await getRuleset(req.params.saccoId) }); }
+  catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/rulesets', requireAdmin, async (req, res) => {
@@ -395,8 +678,8 @@ app.post('/api/admin/rulesets', requireAdmin, async (req, res) => {
     };
     const { error } = await sbAdmin.from('sacco_settings').upsert(payload).eq('sacco_id', sacco_id);
     if (error) throw error;
-    res.json({ success: true, rules: payload });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { rules: payload });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 // ✅ Confirm user email manually (dev helper)
@@ -545,114 +828,7 @@ app.post('/api/pos/latest', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-app.get('/api/pos/latest/:cashierId', async (req, res) => {
-  try {
-    const { data, error } = await sb.from('pos_latest').select('amount_kes, updated_at').eq('cashier_id', req.params.cashierId).maybeSingle();
-    if (error) throw error;
-    res.json(data || {});
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// =======================
-// CASHIER FLOW (initiate, callback, status)
-// =======================
-app.post('/api/cashier/initiate', async (req, res) => {
-  try {
-    const { amount, msisdn, sacco_id, matatu_id, cashier_id, ussd_code } = req.body || {};
-    if (!amount || !msisdn || !sacco_id) return res.status(400).json({ success: false, error: 'amount, msisdn, sacco_id required' });
-
-    const checkout_id = 'CHK-' + Math.random().toString(36).slice(2);
-    const tx = {
-      sacco_id, matatu_id: matatu_id || null, cashier_id: cashier_id || null, ussd_code: ussd_code || null,
-      passenger_msisdn: msisdn, fare_amount_kes: round2(amount), status: 'PENDING',
-      mpesa_checkout_id: checkout_id, created_at: new Date().toISOString()
-    };
-    const { data, error } = await sbAdmin.from('transactions').insert([tx]).select().single();
-    if (error) throw error;
-
-    // Simulate success after 5s (replace with real callback later)
-    setTimeout(async () => {
-      try {
-        await handleMpesaCallback({
-          checkout_id,
-          success: true,
-          amount,
-          msisdn,
-          sacco_id,
-          matatu_id: matatu_id || null,
-          cashier_id: cashier_id || null,
-          ussd_code,
-          receipt: 'R' + Math.random().toString(36).slice(2)
-        });
-      } catch (e) { console.error('[simulate callback] ', e.message); }
-    }, 5000);
-
-    res.json({ success: true, txId: data.id, checkout_id });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-app.post('/api/cashier/callback/mpesa', async (req, res) => {
-  try {
-    await handleMpesaCallback(req.body || {});
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[mpesa callback] error:', err.message);
-    res.status(200).json({ success: false, error: err.message });
-  }
-});
-
-async function handleMpesaCallback(payload) {
-  const { checkout_id, success, amount, msisdn, sacco_id, matatu_id, cashier_id, ussd_code, receipt } = payload;
-  if (!checkout_id || amount == null || !sacco_id) throw new Error('checkout_id, amount, sacco_id required');
-
-  const baseTx = {
-    sacco_id, matatu_id, cashier_id, ussd_code,
-    passenger_msisdn: msisdn || null,
-    fare_amount_kes: round2(amount),
-    service_fee_kes: 2.5,
-    status: success ? 'SUCCESS' : 'FAILED',
-    mpesa_checkout_id: checkout_id,
-    mpesa_receipt: receipt || null,
-    created_at: new Date().toISOString()
-  };
-
-  const { data: upserted, error: upErr } = await sbAdmin
-    .from('transactions')
-    .upsert(baseTx, { onConflict: 'mpesa_checkout_id' })
-    .select()
-    .single();
-  if (upErr) throw upErr;
-  if (!success) return;
-
-  const rules = await getRuleset(sacco_id);
-  const dailyDone = matatu_id ? await hasPaidSaccoFeeToday(matatu_id) : false;
-  const splits = computeSplits({ amount, rules, takeDailyFee: !dailyDone });
-
-  const entries = splits.map(s => ({
-    transaction_id: upserted.id,
-    sacco_id,
-    matatu_id,
-    type: s.type,
-    amount_kes: s.amount_kes,
-    created_at: new Date().toISOString()
-  }));
-  const { error: ledErr } = await sbAdmin.from('ledger_entries').insert(entries);
-  if (ledErr) throw ledErr;
-}
-
-app.get('/api/cashier/status/:id', async (req, res) => {
-  try {
-    const key = req.params.id;
-    let { data, error } = await sb.from('transactions').select('status').eq('id', key).maybeSingle();
-    if (!data) {
-      const r = await sb.from('transactions').select('status').eq('mpesa_checkout_id', key).maybeSingle();
-      data = r.data; error = r.error;
-    }
-    if (error) throw error;
-    const status = data?.status || 'PENDING';
-    res.json({ final: ['SUCCESS','FAILED','TIMEOUT'].includes(status), status });
-  } catch (err) { res.status(200).json({ final: true, status: 'FAILED', error: err.message }); }
-});
+// NOTE: CASHIER level removed; legacy cashier/POS endpoints removed
 
 // =======================
 // PUBLIC / SACCO / OWNER UTILITIES
@@ -716,6 +892,52 @@ app.get('/api/sacco/:saccoId/transactions', async (req, res) => {
     if (error) throw error;
     res.json({ items: data || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// =======================
+// ADMIN: TRANSACTIONS (for dashboard)
+// =======================
+app.get('/api/admin/transactions/fees', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = parseRange(req.query);
+    const { data, error } = await sb
+      .from('ledger_entries')
+      .select('created_at,sacco_id,matatu_id,amount_kes')
+      .eq('type','SACCO_FEE')
+      .gte('created_at', from).lt('created_at', to)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const items = (data||[]).map(r=>({
+      date: (r.created_at||'').slice(0,10),
+      sacco: r.sacco_id || '',
+      amount: Number(r.amount_kes||0),
+      matatu: r.matatu_id || '',
+      time: (r.created_at||'').slice(11,19)
+    }));
+    // Return array for dashboard compatibility
+    return res.json({ success: true, data: items });
+  } catch (e) { return fail(res, 500, sanitizeErr(e)); }
+});
+
+app.get('/api/admin/transactions/loans', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = parseRange(req.query);
+    const { data, error } = await sb
+      .from('ledger_entries')
+      .select('created_at,sacco_id,matatu_id,amount_kes')
+      .eq('type','LOAN_REPAY')
+      .gte('created_at', from).lt('created_at', to)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const items = (data||[]).map(r=>({
+      date: (r.created_at||'').slice(0,10),
+      sacco: r.sacco_id || '',
+      amount: Number(r.amount_kes||0),
+      matatu: r.matatu_id || '',
+      time: (r.created_at||'').slice(11,19)
+    }));
+    return res.json({ success: true, data: items });
+  } catch (e) { return fail(res, 500, sanitizeErr(e)); }
 });
 
 app.get('/api/sacco/:saccoId/summary', async (req, res) => {
@@ -843,8 +1065,8 @@ app.get('/api/admin/ussd/pool/available', requireAdmin, async (req, res) => {
     const { data, error } = await sb.from('ussd_pool').select('base, checksum').eq('allocated', false).order('base');
     if (error) throw error;
     const items = (data || []).map(r => ({ base: r.base, checksum: r.checksum, full_code: fullCode(prefix, r.base, r.checksum) }));
-    res.json({ items });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    return res.json({ success: true, items });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.get('/api/admin/ussd/pool/allocated', requireAdmin, async (req, res) => {
@@ -852,21 +1074,23 @@ app.get('/api/admin/ussd/pool/allocated', requireAdmin, async (req, res) => {
     const prefix = req.query.prefix || '*001*';
     const { data, error } = await sb
       .from('ussd_pool')
-      .select('base, checksum, level, sacco_id, matatu_id, cashier_id, allocated_at')
+      .select('base, checksum, level, sacco_id, matatu_id, allocated_at')
       .eq('allocated', true)
       .order('allocated_at', { ascending: false });
     if (error) throw error;
     const items = (data || []).map(r => ({
       full_code: fullCode(prefix, r.base, r.checksum),
-      level: r.level, sacco_id: r.sacco_id, matatu_id: r.matatu_id, cashier_id: r.cashier_id, allocated_at: r.allocated_at
+      level: r.level, sacco_id: r.sacco_id, matatu_id: r.matatu_id, allocated_at: r.allocated_at
     }));
-    res.json({ items });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    return res.json({ success: true, items });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 app.post('/api/admin/ussd/pool/assign-next', requireAdmin, async (req, res) => {
   try {
     const { level, sacco_id, matatu_id, cashier_id, prefix = '*001*' } = req.body || {};
+    const L = String(level || '').toUpperCase();
+    if (L === 'CASHIER') return res.status(400).json({ success: false, error: 'CASHIER level no longer supported' });
     const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
 
     const { data: nextFree, error: qErr } = await sb
@@ -899,6 +1123,8 @@ app.post('/api/admin/ussd/pool/assign-next', requireAdmin, async (req, res) => {
 app.post('/api/admin/ussd/bind-from-pool', requireAdmin, async (req, res) => {
   try {
     const { level, sacco_id, matatu_id, cashier_id, ussd_code, prefix = '*001*' } = req.body || {};
+    const L = String(level || '').toUpperCase();
+    if (L === 'CASHIER') return res.status(400).json({ success: false, error: 'CASHIER level no longer supported' });
     const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
 
     const parsed = parseUssdDigits(ussd_code);
@@ -927,16 +1153,15 @@ app.post('/api/admin/ussd/bind-from-pool', requireAdmin, async (req, res) => {
       .eq('base', parsed.base);
     if (upErr) throw upErr;
 
-    res.json({ success: true, ussd_code: fullCode(prefix, parsed.base, parsed.check) });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    return ok(res, { ussd_code: fullCode(prefix, parsed.base, parsed.check) });
+  } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
 function resolveTarget(level, ids) {
   const L = String(level || '').toUpperCase();
   if (L === 'MATATU' && ids.matatu_id) return { assigned_type: 'MATATU', assigned_id: ids.matatu_id };
   if (L === 'SACCO'  && ids.sacco_id)  return { assigned_type: 'SACCO',  assigned_id: ids.sacco_id };
-  if (L === 'CASHIER'&& ids.cashier_id)return { assigned_type: 'CASHIER',assigned_id: ids.cashier_id };
-  throw new Error('level and matching id required');
+  throw new Error('level must be SACCO or MATATU (CASHIER no longer supported)');
 }
 
 // ---- Member-scoped reads (aliases) ----
@@ -990,4 +1215,29 @@ app.get('/', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`[TekeTeke] Listening on :${PORT}`);
   console.log('[ENV] URL:', !!SUPABASE_URL, 'ANON:', !!SUPABASE_ANON_KEY, 'SRV:', !!SUPABASE_SERVICE_ROLE);
+});
+
+// ---- helpers
+function cryptoRandomId() {
+  try { return randomUUID(); } catch { return 'req-' + Math.random().toString(36).slice(2,10); }
+}
+function minimalReqHeaders(h){
+  return { host: h.host, 'user-agent': h['user-agent'], 'x-request-id': h['x-request-id'], origin: h.origin, referer: h.referer };
+}
+
+// ---- Basic rate limit for admin APIs
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/admin', adminLimiter);
+
+// ---- Global error handler (ensure JSON + request id)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  try { console.error('[ERR]', req.id || '-', err && err.stack ? err.stack : err); } catch {}
+  if (res.headersSent) return;
+  res.status(500).json({ success: false, error: 'Internal server error', request_id: req.id || '' });
 });

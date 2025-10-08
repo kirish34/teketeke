@@ -5,6 +5,8 @@
   <title>TekeTeke – SACCO Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
   <style>
     :root{
       --brand:#1976d2; --brand-700:#135ba1; --bg:#f5f7fb; --panel:#fff;
@@ -106,7 +108,7 @@
     <table>
       <thead>
         <tr>
-          <th>Time</th><th>Matatu</th><th>Cashier</th><th>MSISDN</th><th>Fare</th><th>Service Fee</th><th>Status</th><th>ID</th>
+          <th>Time</th><th>Matatu</th><th>MSISDN</th><th>Fare</th><th>Service Fee</th><th>Status</th><th>ID</th>
         </tr>
       </thead>
       <tbody id="txTbody"></tbody>
@@ -139,7 +141,10 @@
   </section>
 
 <script>
+// Migrated to /u/* authenticated endpoints with TT.jget; falls back to admin lists when only root token is present.
 (function(){
+  if (typeof ensureAuthOrRoot === 'function') ensureAuthOrRoot();
+  if (typeof protect === 'function') protect('SACCO_ADMIN');
   // ---------- utils ----------
   const $ = id => document.getElementById(id);
   const fmt = n => Number(n||0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -165,28 +170,38 @@
   let chartSummary, chartSavings, chartLoans;
   let cachedTotals = null; // keep the last /summary result
 
-  async function jget(path){
-    const r = await fetch(path);
-    if(!r.ok) throw new Error(await r.text());
-    return r.json();
-  }
+  // bearer-aware GET via TT helper
+  async function jget(path){ return TT.jget(path); }
+
+  // auth presence and base for endpoints
+  const hasAuth = !!(TT.getAuth && TT.getAuth());
+  const hasRoot = !!(TT.getRoot && TT.getRoot());
+  const baseU = hasAuth ? '/u' : '/api';
 
   // ---------- load sacco list ----------
   async function loadSaccos(){
-    const data = await jget('/api/public/saccos');
     const sel = $('saccoSelect');
     sel.innerHTML = '<option value="">— choose —</option>';
-    (data.items||[]).forEach(s=>{
+    let items = [];
+    if (hasAuth) {
+      const res = await jget('/u/my-saccos');
+      const arr = res.items || res.data || res || [];
+      items = arr.map(x => ({ id: x.sacco_id, name: x.name || x.sacco_name || x.sacco_id }));
+    } else if (hasRoot) {
+      const res = await jget('/api/admin/saccos?limit=200');
+      items = res.items || res.data || [];
+    }
+    items.forEach(s=>{
       const o=document.createElement('option');
-      o.value=s.id; o.textContent=s.name; sel.appendChild(o);
+      o.value=s.id; o.textContent=s.name || s.id; sel.appendChild(o);
     });
-    $('statusMsg').textContent = `${(data.items||[]).length} SACCO(s)`;
+    $('statusMsg').textContent = `${items.length} SACCO(s)`;
   }
 
   // ---------- matatus ----------
   async function loadMatatus(){
     if(!currentSacco) return;
-    const data = await jget(`/api/sacco/${currentSacco}/matatus`);
+    const data = await jget(`${baseU}/sacco/${currentSacco}/matatus`);
     const q = $('matatuSearch').value.trim().toUpperCase();
     const rows = (data.items||[]).filter(m => !q || (m.number_plate||'').toUpperCase().includes(q));
     const T = $('matatuTbody'); T.innerHTML='';
@@ -218,7 +233,7 @@
   async function loadSummary(){
     if(!currentSacco) return;
     const from = $('fromDate').value, to = $('toDate').value;
-    const res = await jget(`/api/sacco/${currentSacco}/summary?from=${from}&to=${to}`);
+    const res = await jget(`${baseU}/sacco/${currentSacco}/summary?from=${from}&to=${to}`);
     cachedTotals = res.totals || {};
     const t = cachedTotals;
 
@@ -262,7 +277,7 @@
     if(!currentSacco) return;
     const limit = 200;
     const status = $('txStatus').value;
-    const res = await jget(`/api/sacco/${currentSacco}/transactions?limit=${limit}${status?`&status=${encodeURIComponent(status)}`:''}`);
+    const res = await jget(`${baseU}/sacco/${currentSacco}/transactions?limit=${limit}${status?`&status=${encodeURIComponent(status)}`:''}`);
     const items = res.items || [];
     const T = $('txTbody'); T.innerHTML='';
     items.forEach(tx=>{
@@ -270,7 +285,6 @@
       tr.innerHTML = `
         <td>${new Date(tx.created_at).toLocaleString()}</td>
         <td class="mono">${tx.matatu_id||''}</td>
-        <td class="mono">${tx.cashier_id||''}</td>
         <td class="mono">${tx.passenger_msisdn||''}</td>
         <td>${fmt(tx.fare_amount_kes||0)}</td>
         <td>${fmt(tx.service_fee_kes||0)}</td>

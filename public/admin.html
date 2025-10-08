@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SACCO Admin Dashboard – TekeTeke</title>
+  <title>System Admin Dashboard — TekeTeke</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
   <style>
     :root{
       --brand:#1976d2;
@@ -59,7 +61,8 @@
 </head>
 <body>
 
-  <h2>SACCO Admin Dashboard – TekeTeke</h2>
+  <h2>System Admin Dashboard — TekeTeke</h2>
+  <button id="logoutBtn" class="btn" style="position:fixed;top:12px;right:12px;z-index:10;">Logout</button>
 
   <!-- Admin token + base selector -->
   <div class="topbar">
@@ -163,7 +166,6 @@
         <select id="up_level">
           <option value="MATATU" selected>MATATU</option>
           <option value="SACCO">SACCO</option>
-          <option value="CASHIER">CASHIER</option>
         </select>
       </label></div>
       <div class="field" id="up_matatu_tools">
@@ -177,7 +179,7 @@
         <input id="up_matatu_id" type="hidden" />
       </div>
       <div class="field" id="up_other_tools" style="display:none">
-        <label>Target UUID<input id="up_target_id" placeholder="SACCO/CASHIER id" /></label>
+        <label>Target UUID<input id="up_target_id" placeholder="SACCO id" /></label>
       </div>
     </div>
 
@@ -279,12 +281,14 @@
 (function(){
   // ====== tiny client
   const $ = (id)=>document.getElementById(id);
-  const BASE = ()=> $('api_base').value || '';
+  const BASE = ()=> { const el = $('api_base'); return el ? (el.value || '') : ''; };
   const adm = ()=> localStorage.getItem('tt_admin_token') || '';
-  const H = ()=> ({ 'Content-Type':'application/json', ...(adm()?{'x-admin-token':adm()}: {}) });
-  async function jget(p){ const r=await fetch(BASE()+p,{headers:H()}); const t=await r.text(); if(!r.ok) throw new Error(t||r.statusText); return t?JSON.parse(t):{}; }
-  async function jpost(p,b){ const r=await fetch(BASE()+p,{method:'POST',headers:H(),body:JSON.stringify(b)}); const t=await r.text(); if(!r.ok) throw new Error(t||r.statusText); return t?JSON.parse(t):{}; }
-  async function jdel(p){ const r=await fetch(BASE()+p,{method:'DELETE',headers:H()}); const t=await r.text(); if(!r.ok) throw new Error(t||r.statusText); return t?JSON.parse(t):{}; }
+  const H = ()=> { const h = { 'Content-Type':'application/json' }; const t = adm(); if (t) h['x-admin-token'] = t; return h; };
+  async function parseJSONSafe(text){ if (!text) return {}; try { return JSON.parse(text); } catch { throw new Error('Invalid JSON response'); } }
+  async function handleResponse(r){ const t = await r.text(); if (!r.ok){ let msg = r.statusText || 'Request failed'; try{ const j = t? JSON.parse(t): null; if (j && (j.error || j.message)) msg = j.error || j.message; else if (t) msg = t; }catch{ if (t) msg = t; } throw new Error(msg); } return parseJSONSafe(t); }
+  async function jget(p){ const r=await fetch((BASE()||'')+p,{headers:H()}); return handleResponse(r); }
+  async function jpost(p,b){ const r=await fetch((BASE()||'')+p,{method:'POST',headers:H(),body:JSON.stringify(b||{})}); return handleResponse(r); }
+  async function jdel(p){ const r=await fetch((BASE()||'')+p,{method:'DELETE',headers:H()}); return handleResponse(r); }
 
   // ====== tabs
   document.querySelectorAll('.tab').forEach(t=>{
@@ -292,7 +296,7 @@
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
       document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
       t.classList.add('active');
-      $(t.dataset.panel).classList.add('active');
+      { const p = $(t.dataset.panel); if (p) p.classList.add('active'); }
     };
   });
 
@@ -474,7 +478,6 @@
     const id = $('up_target_id').value.trim();
     if (!id) throw new Error('Enter target UUID');
     if (level==='SACCO') return { level, sacco_id:id };
-    if (level==='CASHIER') return { level, cashier_id:id };
     throw new Error('Invalid level');
   }
   async function loadPool(){
@@ -496,9 +499,12 @@
           });
     const AL = $('up_alloc_tbody'); AL.innerHTML='';
     alloc.forEach(r=>{
-      const when = r.assigned_at ? new Date(r.assigned_at).toLocaleString() : '';
+      const whenIso = r.allocated_at || r.assigned_at || '';
+      const when = whenIso ? new Date(whenIso).toLocaleString() : '';
+      const type = r.level || r.assigned_type || '';
+      const assigned = r.sacco_id || r.matatu_id || r.assigned_id || '';
       const tr=document.createElement('tr');
-      tr.innerHTML = `<td class="mono">${r.full_code}</td><td>${r.assigned_type||''}</td><td class="mono">${r.assigned_id||''}</td><td>${when}</td>`;
+      tr.innerHTML = `<td class="mono">${r.full_code}</td><td>${type}</td><td class="mono">${assigned}</td><td>${when}</td>`;
       AL.appendChild(tr);
     });
   }
@@ -554,14 +560,16 @@
   async function loadTx(){
     const fees = await jget('/api/admin/transactions/fees');
     const loans = await jget('/api/admin/transactions/loans');
+    const feesArr = (fees && fees.data) ? fees.data : (Array.isArray(fees) ? fees : []);
+    const loansArr = (loans && loans.data) ? loans.data : (Array.isArray(loans) ? loans : []);
     const F = $('tx_fee_tbody'); F.innerHTML='';
-    (fees||[]).forEach(tx=>{
+    (feesArr||[]).forEach(tx=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `<td>${tx.date}</td><td class="mono">${tx.sacco}</td><td>${tx.amount}</td><td class="mono">${tx.matatu}</td><td>${tx.time}</td>`;
       F.appendChild(tr);
     });
     const L = $('tx_loan_tbody'); L.innerHTML='';
-    (loans||[]).forEach(tx=>{
+    (loansArr||[]).forEach(tx=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `<td>${tx.date}</td><td class="mono">${tx.sacco}</td><td>${tx.amount}</td><td class="mono">${tx.matatu}</td><td>${tx.time}</td>`;
       L.appendChild(tr);
@@ -653,6 +661,11 @@
   }
   init();
 })();
+</script>
+<script>
+  // Guards: require either user auth or root token; then allow root to bypass role checks
+  if (typeof ensureAuthOrRoot === 'function') ensureAuthOrRoot();
+  if (typeof protect === 'function') protect('SYSTEM_ADMIN');
 </script>
 </body>
 </html>

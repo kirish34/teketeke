@@ -1,0 +1,81 @@
+name: Perf (k6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      MODE:
+        description: "k6 mode (smoke|spike)"
+        required: true
+        default: "smoke"
+        type: choice
+        options: [smoke, spike]
+      VUS:
+        description: "VUs (optional override for smoke)"
+        required: false
+        default: "5"
+      DURATION:
+        description: "Duration (optional override for smoke)"
+        required: false
+        default: "2m"
+      RUN_ADMIN:
+        description: "Hit /api/admin/* (requires admin token)"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      RUN_MEMBER:
+        description: "Hit /u/* (requires bearer token)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+  # schedule:
+  #   - cron: "20 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run k6 ${{ inputs.MODE || 'smoke' }}
+        env:
+          BASE_URL: ${{ secrets.TEKETEKE_BASE_URL }}
+          MODE: ${{ inputs.MODE || 'smoke' }}
+          VUS: ${{ inputs.VUS }}
+          DURATION: ${{ inputs.DURATION }}
+          RUN_ADMIN: ${{ inputs.RUN_ADMIN || 'true' }}
+          RUN_MEMBER: ${{ inputs.RUN_MEMBER || 'false' }}
+          ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+          AUTH_TOKEN: ${{ secrets.TEKETEKE_AUTH_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          docker run --rm -i \
+            -e BASE_URL -e MODE -e VUS -e DURATION -e RUN_ADMIN -e RUN_MEMBER \
+            -e ADMIN_TOKEN -e AUTH_TOKEN \
+            -v "$PWD:/work" -w /work \
+            grafana/k6:0.49.0 run --summary-export artifacts/k6-${MODE}.json scripts/k6-load.js
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ inputs.MODE || 'smoke' }}-summary
+          path: artifacts/k6-*.json
+
+      - name: Summarize k6 p95/p99 + error rate
+        if: always()
+        run: |
+          node scripts/parse-k6-summary.js artifacts/k6-${{ inputs.MODE || 'smoke' }}.json || true
+
+      - name: Perf gate (p95/error)
+        if: ${{ always() && inputs.MODE }}
+        env:
+          P95: ${{ inputs.MODE == 'spike' && '800' || '500' }}
+          ERR: ${{ inputs.MODE == 'spike' && '0.02' || '0.01' }}
+        run: |
+          node scripts/guard-k6.js artifacts/k6-${{ inputs.MODE || 'smoke' }}.json "$P95" "$ERR"

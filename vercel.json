@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "name": "teketeke",
+  "env": {
+    "NODE_ENV": "production",
+    "SUPABASE_URL": "",
+    "SUPABASE_ANON_KEY": "",
+    "SUPABASE_SERVICE_ROLE": "",
+    "SUPABASE_JWT_SECRET": "",
+    "ADMIN_TOKEN": ""
+  },
+  "buildCommand": "",
+  "installCommand": "npm ci",
+  "devCommand": "node server.js",
+  "builds": [
+    { "src": "server.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/public/(.*)", "dest": "/public/$1" },
+    { "src": "/(.*)", "dest": "/server.js" }
+  ]
+}

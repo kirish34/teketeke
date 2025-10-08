@@ -1,22 +1,37 @@
-{
-  "name": "teketeke",
-  "version": "1.0.0",
-  "main": "server.js",
-  "license": "MIT",
-  "type": "commonjs",
-  "scripts": {
-    "dev": "cross-env NODE_ENV=development node server.js",
-    "start": "cross-env NODE_ENV=production node server.js"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "morgan": "^1.10.0"
-  },
-  "devDependencies": {
-    "cross-env": "^10.1.0"
-  }
+﻿{
+    "name":  "teketeke",
+    "version":  "1.0.0",
+    "main":  "server.js",
+    "license":  "MIT",
+    "type":  "commonjs",
+    "scripts":  {
+                    "dev":  "cross-env NODE_ENV=development node server.js",
+                    "start":  "cross-env NODE_ENV=production node server.js",
+                    "start:pretty":  "cross-env PRETTY_LOGS=1 node server.js",
+                    "check:deadcode":  "node scripts/check-deadcode.js",
+                    "test:admin-flow":  "node scripts/test-admin-flow.js",
+                    "test:rules-flow":  "node scripts/test-rules-flow.js",
+                    "test:e2e":  "npm run test:admin-flow \u0026\u0026 npm run test:rules-flow",
+                    "seed:ussd-pool":  "node scripts/seed-ussd-pool.js",
+    "perf:load":   "k6 run scripts/k6-load.js",
+    "perf:smoke":  "cross-env MODE=smoke k6 run scripts/k6-load.js",
+    "perf:spike":  "cross-env MODE=spike k6 run scripts/k6-load.js"
+                },
+    "dependencies":  {
+                         "@supabase/supabase-js":  "^2.45.0",
+                         "cors":  "^2.8.5",
+                         "dotenv":  "^16.4.5",
+                         "express":  "^4.19.2",
+                         "jsonwebtoken":  "^9.0.2",
+                         "morgan":  "^1.10.0",
+                         "express-rate-limit":  "^7.1.5",
+                         "helmet":  "^7.1.0",
+                         "pino-http":  "^10.3.0",
+                         "swagger-ui-express":  "^5.0.0",
+                         "yaml":  "^2.5.0"
+                     },
+    "devDependencies":  {
+                            "cross-env":  "^10.1.0",
+                            "pino-pretty":  "^11.2.2"
+                        }
 }

@@ -1,6 +1,39 @@
 // public/js/nav.js
 (function () {
-  // Avoid double injection
+  // Simple auth guards & nav injection
+  // Expose minimal helpers on window when this script loads
+  function ensureAuthOrRoot() {
+    const hasAuth = !!(window.TT && typeof TT.getAuth === 'function' ? TT.getAuth() : localStorage.getItem('auth_token') || localStorage.getItem('TT_TOKEN'));
+    const hasRoot = !!(window.TT && typeof TT.getRoot === 'function' ? TT.getRoot() : localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token'));
+    if (!hasAuth && !hasRoot) {
+      location.href = '/auth/login.html';
+    }
+  }
+  async function protect(targetRole) {
+    const want = String(targetRole || '').toUpperCase();
+    const hasRoot = !!(window.TT && typeof TT.getRoot === 'function' ? TT.getRoot() : localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token'));
+    if (hasRoot) return true; // root bypass
+    const auth = window.TT && typeof TT.getAuth === 'function' ? TT.getAuth() : (localStorage.getItem('auth_token') || localStorage.getItem('TT_TOKEN'));
+    if (!auth) { location.href = '/auth/login.html'; return false; }
+    try {
+      const res = await fetch('/api/my-roles', { headers: { Authorization: 'Bearer ' + auth } });
+      if (res.status === 401) { location.href = '/auth/login.html'; return false; }
+      const data = await res.json();
+      if (!want) return true;
+      if (want === 'SYSTEM_ADMIN') { location.href = '/auth/role-select.html'; return false; }
+      const saccos = Array.isArray(data?.data?.saccos) ? data.data.saccos : (Array.isArray(data?.saccos) ? data.saccos : []);
+      const ok = saccos.some(r => String(r.role).toUpperCase() === 'SACCO_ADMIN' || String(r.role).toUpperCase() === 'ADMIN');
+      if (!ok) { location.href = '/auth/role-select.html'; return false; }
+      return true;
+    } catch {
+      location.href = '/auth/login.html';
+      return false;
+    }
+  }
+  window.ensureAuthOrRoot = ensureAuthOrRoot;
+  window.protect = protect;
+
+  // Avoid double injection of nav links
   if (document.querySelector('nav.tt-nav')) return;
 
   const links = [
@@ -50,4 +83,16 @@
 
   // Insert at top of body
   document.body.insertBefore(nav, document.body.firstChild);
+
+  // Wire logout button globally if present on page
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('logoutBtn');
+    if (btn) btn.addEventListener('click', () => {
+      if (window.TT && typeof TT.logout === 'function') TT.logout('/auth/role-select.html');
+      else {
+        try { localStorage.removeItem('auth_token'); localStorage.removeItem('TT_TOKEN'); localStorage.removeItem('tt_root_token'); localStorage.removeItem('tt_admin_token'); } catch {}
+        location.href = '/auth/role-select.html';
+      }
+    });
+  });
 })();

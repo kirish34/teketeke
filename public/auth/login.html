@@ -1,131 +1,96 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8">
   <title>TekeTeke — Login</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;height:100vh;margin:0}
-    .card{background:#111827;border:1px solid #1f2937;border-radius:14px;max-width:360px;width:92%;padding:22px;box-shadow:0 10px 35px rgba(0,0,0,.35)}
-    h1{margin:0 0 10px;font-size:22px}
-    label{display:block;margin:12px 0 6px;color:#cbd5e1;font-size:13px}
-    input,select{width:100%;padding:12px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
-    button{width:100%;padding:12px 14px;border-radius:10px;border:0;background:#10b981;color:#04110a;font-weight:700;margin-top:14px;cursor:pointer}
-    .muted{color:#94a3b8;font-size:12px;margin-top:8px}
-    .err{background:#3f1a1a;border:1px solid #b91c1c;color:#fecaca;padding:10px;border-radius:10px;display:none;margin-bottom:10px}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f7fafc;margin:0;display:grid;place-items:center;height:100vh}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 20px rgba(0,0,0,.06);padding:24px;min-width:320px;max-width:360px}
+    h1{margin:0 0 12px;color:#111827;font-size:20px}
+    .row{display:flex;flex-direction:column;margin:8px 0}
+    input{padding:10px;border:1px solid #d1d5db;border-radius:8px}
+    .btn{margin-top:8px;width:100%;padding:10px;border:none;border-radius:8px;background:#1976d2;color:#fff;cursor:pointer}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .muted{color:#6b7280;font-size:12px;margin-top:4px}
+    .err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px;margin-top:8px;display:none}
+    .ok{background:#dcfce7;color:#064e3b;border:1px solid #86efac;border-radius:8px;padding:8px;margin-top:8px;display:none}
+    .link{display:block;text-align:center;margin-top:10px;color:#1976d2;text-decoration:none}
   </style>
-</head>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script>
+    // If already logged or a root token exists, route away quickly
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const existingAuth = localStorage.getItem('auth_token') || localStorage.getItem('TT_TOKEN');
+        const hasRoot = localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token');
+        if (existingAuth || hasRoot) {
+          routeAfterLogin({ saccos: [] });
+        }
+      } catch {}
+    });
+  </script>
+  </head>
 <body>
   <div class="card">
-    <h1>Sign in</h1>
-    <div id="err" class="err"></div>
-    <label>Email</label>
-    <input id="email" type="email" placeholder="you@example.com" autocomplete="username" />
-    <label>Password</label>
-    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-    <button id="loginBtn">Continue</button>
-    <div class="muted">You’ll be routed to your SACCO or Matatu dashboard based on your role.</div>
+    <h1>Sign in to TekeTeke</h1>
+    <div class="row">
+      <label>Email</label>
+      <input id="email" type="email" placeholder="name@example.com" autocomplete="email" />
+    </div>
+    <div class="row">
+      <label>Password</label>
+      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button id="loginBtn" class="btn">Sign in</button>
+    <div id="msgErr" class="err"></div>
+    <div id="msgOk" class="ok"></div>
+    <a class="link" href="/auth/role-select.html">Choose role</a>
   </div>
 
-<script>
-  // Store the Supabase access token for bearer calls
-  const TOKEN_KEY = 'TT_TOKEN';
-  const USER_KEY  = 'TT_USER';
+  <script>
+    (function(){
+      const $ = (id)=>document.getElementById(id);
+      const show = (el, txt)=>{ el.textContent = txt; el.style.display = 'block'; };
+      const hide = (el)=> el.style.display = 'none';
 
-  function saveAuth({ access_token, user }) {
-    localStorage.setItem(TOKEN_KEY, access_token || '');
-    localStorage.setItem(USER_KEY, JSON.stringify(user || {}));
-  }
+      $('loginBtn').onclick = async ()=>{
+        const btn = $('loginBtn');
+        const errEl = $('msgErr'), okEl = $('msgOk');
+        hide(errEl); hide(okEl);
+        btn.disabled = true;
 
-  async function api(path, opts = {}) {
-    const res = await fetch(path, {
-      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-      ...opts
-    });
-    return res.json();
-  }
+        try{
+          const email = $('email').value.trim();
+          const password = $('password').value.trim();
+          if (!email || !password) { show(errEl, 'Email and password required'); btn.disabled=false; return; }
 
-  async function authed(path) {
-    const t = localStorage.getItem(TOKEN_KEY) || '';
-    const res = await fetch(path, { headers: { 'Authorization': 'Bearer ' + t } });
-    if (res.status === 401) {
-      localStorage.removeItem(TOKEN_KEY);
-      location.href = '/auth/login.html';
-      return null;
-    }
-    return res.json();
-  }
+          const res = await TT.jpost('/api/auth/login', { email, password });
+          if (res && res.access_token) {
+            TT.setAuth(res.access_token);
+          }
+          show(okEl, 'Signed in. Redirecting…');
+          routeAfterLogin(res || {});
+        }catch(e){
+          show(errEl, e.message || 'Login failed');
+        }finally{
+          btn.disabled = false;
+        }
+      };
 
-  // Decide where to go based on roles
-  async function routeByRole() {
-    const me = await authed('/api/my-roles');
-    if (!me) return;
-
-    const saccos  = me.saccos  || [];
-    const matatus = me.matatus || [];
-
-    // multiple roles -> chooser
-    if ((saccos.length + matatus.length) > 1) {
-      location.href = '/auth/role-select.html';
-      return;
-    }
-
-    // SACCO routes
-    if (saccos.length === 1) {
-      const r = (saccos[0].role || '').toUpperCase();
-      location.href = (r === 'SACCO_ADMIN' || r === 'ADMIN')
-        ? '/sacco/sacco.html'
-        : '/sacco/staff.html';
-      return;
-    }
-
-    // Matatu routes
-    if (matatus.length === 1) {
-      const r = (matatus[0].member_role || '').toLowerCase();
-      location.href = (r === 'owner') ? '/matatu/owner.html' : '/matatu/conductor.html';
-      return;
-    }
-
-    // No roles yet
-    location.href = '/auth/role-select.html';
-  }
-
-  document.querySelector('#loginBtn').addEventListener('click', async () => {
-    const email = document.querySelector('#email').value.trim();
-    const password = document.querySelector('#password').value;
-    const box = document.querySelector('#err');
-    box.style.display = 'none';
-
-    if (!email || !password) {
-      box.textContent = 'Email and password required';
-      box.style.display = 'block';
-      return;
-    }
-
-    try {
-      // Prefer the /api form (returns {success:true}), but also accept {ok:true}
-      const r = await api('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-
-      if (!(r.success || r.ok)) throw new Error(r.error || 'Login failed');
-      const token = r.access_token || r.session?.access_token;
-      if (!token) throw new Error('No access token returned');
-
-      saveAuth({ access_token: token, user: r.user });
-      await routeByRole();
-    } catch (e) {
-      box.textContent = e.message || 'Login failed';
-      box.style.display = 'block';
-    }
-  });
-
-  // already logged in? go straight to role routing
-  (function init() {
-    const t = localStorage.getItem(TOKEN_KEY);
-    if (t) routeByRole();
-  })();
-</script>
+      window.routeAfterLogin = function routeAfterLogin(session){
+        const hasRoot = !!TT.getRoot();
+        if (hasRoot) { location.href = '/admin.html'; return; }
+        const saccos = Array.isArray(session.saccos) ? session.saccos : [];
+        const isSaccoAdmin = saccos.some(r => {
+          const role = String(r.role || '').toUpperCase();
+          return role === 'SACCO_ADMIN' || role === 'ADMIN';
+        });
+        if (isSaccoAdmin) { location.href = '/sacco/admin.html'; return; }
+        location.href = '/auth/role-select.html';
+      }
+    })();
+  </script>
 </body>
 </html>

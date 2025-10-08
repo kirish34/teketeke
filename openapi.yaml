@@ -1,0 +1,1074 @@
+openapi: 3.0.3
+info:
+  title: TekeTeke Backend API
+  version: 1.0.0
+  description: |
+    Backend for SACCOS, Matatus, USSD pool, auth, and dashboards.
+    Conventions:
+      - Success envelopes: { success: true, data: ... } or { success: true, items: [...], count: N }
+      - Errors: { success: false, error: "message" }
+      - Some legacy/public endpoints return plain arrays; UIs already handle r.data || r.items || r.
+servers:
+  - url: https://api.teketeke.example
+    description: Production
+  - url: http://localhost:5001
+    description: Local dev
+
+tags:
+  - name: Health
+  - name: Config
+  - name: Auth
+  - name: Admin
+  - name: USSD Pool
+  - name: Transactions
+  - name: Public
+  - name: Member
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    adminToken:
+      type: apiKey
+      in: header
+      name: x-admin-token
+
+  parameters:
+    From:
+      in: query
+      name: from
+      schema: { type: string, format: date-time }
+      description: Inclusive start (ISO)
+    To:
+      in: query
+      name: to
+      schema: { type: string, format: date-time }
+      description: Exclusive end (ISO)
+    Date:
+      in: query
+      name: date
+      schema: { type: string, format: date }
+      description: Single day (overrides from/to)
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, minimum: 0, default: 0 }
+    Q:
+      in: query
+      name: q
+      schema: { type: string }
+      description: Search query
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        data: {}
+    ItemsEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        items: { type: array, items: {} }
+        count: { type: integer }
+    ErrorEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, const: false }
+        error: { type: string }
+      required: [success, error]
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+
+    Sacco:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        contact_name: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        contact_email: { type: string, nullable: true }
+        default_till: { type: string, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+
+    Matatu:
+      type: object
+      properties:
+        id: { type: string }
+        sacco_id: { type: string }
+        number_plate: { type: string }
+        owner_name: { type: string, nullable: true }
+        owner_phone: { type: string, nullable: true }
+        vehicle_type: { type: string, nullable: true }
+        tlb_number: { type: string, nullable: true }
+        till_number: { type: string, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+
+    Ruleset:
+      type: object
+      properties:
+        sacco_id: { type: string }
+        fare_fee_flat_kes: { type: number }
+        savings_percent: { type: number }
+        sacco_daily_fee_kes: { type: number }
+        loan_repay_percent: { type: number }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    Transaction:
+      type: object
+      properties:
+        id: { type: string }
+        sacco_id: { type: string }
+        matatu_id: { type: string }
+        cashier_id: { type: string, nullable: true, description: "Legacy column; UI no longer shows it" }
+        passenger_msisdn: { type: string, nullable: true }
+        fare_amount_kes: { type: number }
+        service_fee_kes: { type: number }
+        status: { type: string }
+        mpesa_receipt: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    LedgerRow:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        sacco: { type: string }
+        matatu: { type: string }
+        amount: { type: number }
+        time: { type: string, example: "14:33:21" }
+
+    SummaryTotals:
+      type: object
+      properties:
+        FARE: { type: number, nullable: true }
+        SERVICE_FEE: { type: number, nullable: true }
+        SAVINGS: { type: number, nullable: true }
+        LOAN_REPAY: { type: number, nullable: true }
+        SACCO_FEE: { type: number, nullable: true }
+        NET_TO_OWNER: { type: number, nullable: true }
+
+    Range:
+      type: object
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+
+    UssdAvailable:
+      type: object
+      properties:
+        base: { type: string, example: "110" }
+        checksum: { type: string, example: "2" }
+        full_code: { type: string, example: "*001*1102#" }
+
+    UssdAllocated:
+      type: object
+      properties:
+        full_code: { type: string }
+        level: { type: string, enum: ["SACCO","MATATU"] }
+        sacco_id: { type: string, nullable: true }
+        matatu_id: { type: string, nullable: true }
+        allocated_at: { type: string, format: date-time, nullable: true }
+
+  responses:
+    UnauthorizedError:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success: { type: boolean, example: false }
+              error: { type: string, example: Unauthorized }
+    ForbiddenError:
+      description: Authenticated but not allowed for this resource
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success: { type: boolean, example: false }
+              error: { type: string, example: Forbidden (not a SACCO member) }
+
+paths:
+  # -------------------------
+  # Health / Config
+  # -------------------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness
+      responses:
+        "200": { description: OK }
+        "5XX": { description: Server error }
+
+  /__health:
+    get:
+      tags: [Health]
+      summary: Extended health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "5XX":
+          description: Error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /config.json:
+    get:
+      tags: [Config]
+      summary: Public Supabase config
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  SUPABASE_URL: { type: string }
+                  SUPABASE_ANON_KEY: { type: string }
+
+  # -------------------------
+  # Auth
+  # -------------------------
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Email/password signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                sacco_id: { type: string, nullable: true }
+                sacco_role: { type: string, nullable: true, default: "STAFF" }
+                matatu_id: { type: string, nullable: true }
+                member_role: { type: string, nullable: true, default: "conductor" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  needs_confirmation: { type: boolean }
+                  session: {}
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  error: { type: string }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login (UI)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+                  user: { $ref: "#/components/schemas/User" }
+                  saccos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sacco_id: { type: string }
+                        role: { type: string }
+                        sacco_name: { type: string }
+                        default_till: { type: string, nullable: true }
+                  matatus:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        matatu_id: { type: string }
+                        member_role: { type: string }
+                        plate: { type: string }
+                        sacco_id: { type: string, nullable: true }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  error: { type: string }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login (programmatic)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+                  user: { $ref: "#/components/schemas/User" }
+                  saccos: { type: array, items: {} }
+                  matatus: { type: array, items: {} }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: Who am I
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Me
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+        "401":
+          description: Unauthorized
+
+  /api/my-roles:
+    get:
+      tags: [Auth]
+      summary: My roles (SACCO & Matatu)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      saccos: { type: array, items: {} }
+                      matatus: { type: array, items: {} }
+
+  # -------------------------
+  # Admin (requires x-admin-token)
+  # -------------------------
+  /api/admin/saccos:
+    get:
+      tags: [Admin]
+      summary: List saccos
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: "#/components/parameters/Q"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemsEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "5XX":
+          description: Error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /api/admin/register-sacco:
+    post:
+      tags: [Admin]
+      summary: Create sacco
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                contact_name: { type: string, nullable: true }
+                contact_phone: { type: string, nullable: true }
+                contact_email: { type: string, nullable: true }
+                default_till: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/update-sacco:
+    post:
+      tags: [Admin]
+      summary: Update sacco
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              additionalProperties: true
+              properties:
+                id: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/delete-sacco/{id}:
+    delete:
+      tags: [Admin]
+      summary: Delete sacco
+      security:
+        - adminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/matatus:
+    get:
+      tags: [Admin]
+      summary: List matatus
+      security:
+        - adminToken: []
+      parameters:
+        - in: query
+          name: sacco_id
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ItemsEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/register-matatu:
+    post:
+      tags: [Admin]
+      summary: Create matatu
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sacco_id, number_plate]
+              properties:
+                sacco_id: { type: string }
+                number_plate: { type: string }
+                owner_name: { type: string, nullable: true }
+                owner_phone: { type: string, nullable: true }
+                vehicle_type: { type: string, nullable: true }
+                tlb_number: { type: string, nullable: true }
+                till_number: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/update-matatu:
+    post:
+      tags: [Admin]
+      summary: Update matatu
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              additionalProperties: true
+              properties:
+                id: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/delete-matatu/{id}:
+    delete:
+      tags: [Admin]
+      summary: Delete matatu
+      security:
+        - adminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/rulesets/{saccoId}:
+    get:
+      tags: [Admin]
+      summary: Get ruleset
+      security:
+        - adminToken: []
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      rules: { $ref: "#/components/schemas/Ruleset" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/rulesets:
+    post:
+      tags: [Admin]
+      summary: Upsert ruleset
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sacco_id]
+              properties:
+                sacco_id: { type: string }
+                fare_fee_flat_kes: { type: number, default: 2.5 }
+                savings_percent: { type: number, default: 5 }
+                sacco_daily_fee_kes: { type: number, default: 50 }
+                loan_repay_percent: { type: number, default: 0 }
+      responses:
+        "200":
+          description: Upserted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  # -------------------------
+  # USSD Pool (Admin)
+  # -------------------------
+  /api/admin/ussd/pool/available:
+    get:
+      tags: [USSD Pool]
+      summary: List available USSD bases
+      security:
+        - adminToken: []
+      parameters:
+        - in: query
+          name: prefix
+          schema: { type: string, example: "001" }
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/UssdAvailable" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/ussd/pool/allocated:
+    get:
+      tags: [USSD Pool]
+      summary: List allocated USSD
+      security:
+        - adminToken: []
+      parameters:
+        - in: query
+          name: prefix
+          schema: { type: string, example: "001" }
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/UssdAllocated" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/ussd/pool/assign-next:
+    post:
+      tags: [USSD Pool]
+      summary: Assign next available code to SACCO or MATATU
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level]
+              properties:
+                level: { type: string, enum: ["SACCO","MATATU"] }
+                sacco_id: { type: string, nullable: true }
+                matatu_id: { type: string, nullable: true }
+                prefix: { type: string, example: "*001*" }
+      responses:
+        "200":
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  ussd_code: { type: string }
+        "400":
+          description: No free codes / invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /api/admin/ussd/bind-from-pool:
+    post:
+      tags: [USSD Pool]
+      summary: Bind a specific code to SACCO or MATATU
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level, ussd_code]
+              properties:
+                level: { type: string, enum: ["SACCO","MATATU"] }
+                sacco_id: { type: string, nullable: true }
+                matatu_id: { type: string, nullable: true }
+                ussd_code: { type: string, example: "*001*1102#" }
+                prefix: { type: string, example: "*001*" }
+      responses:
+        "200":
+          description: Bound
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "400":
+          description: Bad code / already allocated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  # -------------------------
+  # Admin Transactions (Dashboard)
+  # -------------------------
+  /api/admin/transactions/fees:
+    get:
+      tags: [Transactions]
+      summary: SACCO fees ledger rows (range)
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Date"
+      responses:
+        "200":
+          description: Rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerRow" }
+
+  /api/admin/transactions/loans:
+    get:
+      tags: [Transactions]
+      summary: Loan repayments ledger rows (range)
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Date"
+      responses:
+        "200":
+          description: Rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerRow" }
+
+  # -------------------------
+  # Public / Lookup
+  # -------------------------
+  /api/public/saccos:
+    get:
+      tags: [Public]
+      summary: Public list of saccos
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Sacco" }
+
+  /api/lookup/matatu:
+    get:
+      tags: [Public]
+      summary: Lookup matatu by plate OR till
+      parameters:
+        - in: query
+          name: plate
+          schema: { type: string }
+        - in: query
+          name: till
+          schema: { type: string }
+      responses:
+        "200":
+          description: Found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Matatu" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+
+  /api/sacco/{saccoId}/matatus:
+    get:
+      tags: [Public]
+      summary: Public list of matatus in a sacco
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Matatu" }
+
+  /api/sacco/{saccoId}/transactions:
+    get:
+      tags: [Public]
+      summary: Public sacco transactions (recent)
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Transaction" }
+
+  /api/sacco/{saccoId}/summary:
+    get:
+      tags: [Public]
+      summary: Public sacco summary (range or single day)
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Date"
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  range: { $ref: "#/components/schemas/Range" }
+                  totals: { $ref: "#/components/schemas/SummaryTotals" }
+
+  # -------------------------
+  # Member (/u/*) — bearer + membership guard
+  # -------------------------
+  /u/my-saccos:
+    get:
+      tags: [Member]
+      summary: My sacco memberships
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sacco_id: { type: string }
+                        role: { type: string }
+                        name: { type: string }
+                        default_till: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+
+  /u/sacco/{saccoId}/transactions:
+    get:
+      tags: [Member]
+      summary: Member sacco transactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Transaction" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /u/sacco/{saccoId}/matatus:
+    get:
+      tags: [Member]
+      summary: Member sacco matatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Matatu" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+
+  /u/sacco/{saccoId}/summary:
+    get:
+      tags: [Member]
+      summary: Member sacco summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: saccoId
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Date"
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  range: { $ref: "#/components/schemas/Range" }
+                  totals: { $ref: "#/components/schemas/SummaryTotals" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }

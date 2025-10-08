@@ -1,0 +1,30 @@
+/* scripts/test-cashier-flow.js */
+require('dotenv').config();
+
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5001';
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+
+(async () => {
+  // Polyfill fetch for Node < 18
+  if (typeof fetch === 'undefined') {
+    global.fetch = (await import('node-fetch')).default;
+  }
+
+  if (!ADMIN_TOKEN) {
+    throw new Error('ADMIN_TOKEN is required. Set it in .env or env vars.');
+  }
+
+  const h = () => ({
+    'Content-Type': 'application/json',
+    'x-admin-token': ADMIN_TOKEN,
+  });
+
+  const api = async (path, opts = {}) => {
+    const url = new URL(path, BASE_URL);
+    const res = await fetch(url, {
+      method: opts.method || 'GET',
+      headers: { ...h(), ...(opts.headers || {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const text = await res.text();
+    let json = {};

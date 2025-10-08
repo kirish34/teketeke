@@ -1,18 +1,52 @@
 // public/js/api.js
 (function () {
-  // ---- storage keys
+  // ---- storage keys (with backward compatibility)
   const K = {
-    admin:  'tt_admin_token',
+    // preferred keys
+    root: 'tt_root_token',
+    auth: 'auth_token',
+    // legacy keys we still read
+    legacy_admin: 'tt_admin_token',
+    legacy_auth: 'TT_TOKEN',
+    // misc existing keys (kept for completeness)
     sacco:  'tt_sacco_id',
     matatu: 'tt_matatu_id',
     till:   'tt_till',
     cashier:'tt_cashier_id',
   };
 
-  // ---- state (localStorage-backed)
+  // ---- token helpers
+  function getRoot() {
+    return localStorage.getItem(K.root) || localStorage.getItem(K.legacy_admin) || '';
+  }
+  function setRoot(v) {
+    const val = v || '';
+    localStorage.setItem(K.root, val);
+    // keep legacy mirror for existing pages
+    localStorage.setItem(K.legacy_admin, val);
+  }
+  function clearRoot() {
+    localStorage.removeItem(K.root);
+    localStorage.removeItem(K.legacy_admin);
+  }
+  function getAuth() {
+    return localStorage.getItem(K.auth) || localStorage.getItem(K.legacy_auth) || '';
+  }
+  function setAuth(v) {
+    const val = v || '';
+    localStorage.setItem(K.auth, val);
+    // mirror to legacy for older pages
+    localStorage.setItem(K.legacy_auth, val);
+  }
+  function clearAuth() {
+    localStorage.removeItem(K.auth);
+    localStorage.removeItem(K.legacy_auth);
+  }
+
+  // ---- state (localStorage-backed) for misc app data
   const S = {
-    get adminToken() { return localStorage.getItem(K.admin) || ''; },
-    set adminToken(v){ localStorage.setItem(K.admin, v || ''); },
+    get adminToken() { return getRoot(); },
+    set adminToken(v){ setRoot(v); },
 
     get saccoId()    { return localStorage.getItem(K.sacco) || ''; },
     set saccoId(v)   { localStorage.setItem(K.sacco, v || ''); },
@@ -44,13 +78,18 @@
 
   async function j(path, { method = 'GET', body, headers = {} } = {}) {
     const hasBody = body !== undefined && body !== null;
+    const h = {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    };
+    const rootTok = getRoot();
+    const authTok = getAuth();
+    if (rootTok) h['x-admin-token'] = rootTok;
+    if (authTok) h['Authorization'] = `Bearer ${authTok}`;
+
     const res = await fetch(`${BASE()}${path}`, {
       method,
-      headers: {
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        ...(S.adminToken ? { 'x-admin-token': S.adminToken } : {}),
-        ...headers,
-      },
+      headers: h,
       body: hasBody ? JSON.stringify(body) : undefined,
     });
 
@@ -65,14 +104,26 @@
     try { return JSON.parse(text); } catch { return { raw: text }; }
   }
 
+  function logout(redirect = '/auth/role-select.html') {
+    try { clearAuth(); } catch {}
+    try { clearRoot(); } catch {}
+    if (redirect) location.href = redirect;
+  }
+
   // ---- public API
   const TT = {
+    // tokens / session
+    getRoot, setRoot, clearRoot,
+    getAuth, setAuth, clearAuth,
+    logout,
+
     state: S,
 
     // generic
     get:  (p, params) => j(p + (params ? qstr(params) : '')),
     post: (p, b)     => j(p, { method: 'POST', body: b }),
     del:  (p)        => j(p, { method: 'DELETE' }),
+    jpost: (p, b)    => j(p, { method: 'POST', body: b }), // alias for convenience
 
     // admin: saccos / matatus
     listSaccos:   (q)       => TT.get('/api/admin/saccos', q ? { q } : undefined),
@@ -99,8 +150,7 @@
     // transactions / reports (admin)
     txFeesToday:  ()        => TT.get('/api/admin/transactions/fees'),
     txLoansToday: ()        => TT.get('/api/admin/transactions/loans'),
-    settlements:  (saccoId, date) =>
-                   TT.get('/api/admin/settlements', { sacco_id: saccoId, date }),
+    settlements:  (saccoId, date) => TT.get('/api/admin/settlements', { sacco_id: saccoId, date }),
 
     // public/lookup (used by staff/owner/conductor)
     publicSaccos: ()        => TT.get('/api/public/saccos'),
@@ -113,3 +163,4 @@
 
   window.TT = TT;
 })();
+

@@ -1,0 +1,23 @@
+# [Type] Brief description
+
+# Example:
+# [Backend] Add /api/admin/loans endpoint with requireAdmin guard
+
+## Summary
+- Describe what you changed and why.
+- Mention any new endpoints or modified routes.
+- Include any relevant middleware changes (e.g., added requireAdmin, requireUser, or requireSaccoMember).
+
+## Validation
+- [ ] npm run check:deadcode passes ✅
+- [ ] npm run seed:ussd-pool (if needed)
+- [ ] npm run test:e2e passes locally
+- [ ] Verified dashboards (admin/sacco) load without console errors.
+
+## Notes
+- Always include guards:
+  - `/api/admin/*` → requireAdmin
+  - `/u/*` → requireUser
+  - `/u/sacco/:saccoId/*` → requireUser + requireSaccoMember
+- Never reintroduce legacy “cashier” endpoints or variables.
+

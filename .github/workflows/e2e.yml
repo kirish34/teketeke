@@ -1,0 +1,112 @@
+name: E2E (TekeTeke)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    env:
+      # E2E tests
+      BASE_URL: ${{ secrets.TEKETEKE_BASE_URL }}
+      ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+      # Seeder (talks directly to Supabase, not your app)
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      # Optional seed range tweaks
+      SEED_START: "110"
+      SEED_COUNT: "30"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Check for banned 'cashier' code
+        run: npm run check:deadcode
+
+      # --- NEW: Seed USSD pool (idempotent) ---
+      - name: Seed USSD pool
+        env:
+          # Use staging range during scheduled runs, keep default otherwise
+          SEED_ENV: ${{ github.event_name == 'schedule' && 'staging' || '' }}
+        run: npm run seed:ussd-pool
+
+      - name: Verify USSD pool seeded
+        run: |
+          echo "Seed range: ${SEED_START} count ${SEED_COUNT}"
+          node -e "(async()=>{const r=await fetch(process.env.BASE_URL+'/api/admin/ussd/pool/available',{headers:{'x-admin-token':process.env.ADMIN_TOKEN}}); const j=await r.json(); const n=(j.items||j.data||[]).length; console.log('Available pool size:',n); if(n===0){console.error('USSD pool is empty after seed'); process.exit(1);} })().catch(e=>{console.error(e); process.exit(1);});"
+
+      # If you test against a REMOTE backend:
+      - name: Run E2E (remote backend) with one retry & timeout
+        run: timeout 12m bash -c 'npm run test:e2e || npm run test:e2e'
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            artifacts/**
+
+      - name: Verify artifacts exist
+        if: always()
+        run: |
+          test -f artifacts/junit-admin.xml
+          test -f artifacts/junit-rules.xml
+
+      # Publish JUnit summary in PR (reads artifacts/junit-*.xml)
+      - name: Publish test summary
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          junit_files: "artifacts/junit-*.xml"
+
+      - name: k6 smoke (read-only)
+        if: always()
+        run: |
+          docker run --rm -i \
+            -e BASE_URL="${{ secrets.TEKETEKE_BASE_URL }}" \
+            -e ADMIN_TOKEN="${{ secrets.TEKETEKE_ADMIN_TOKEN }}" \
+            grafana/k6:0.49.0 run - < scripts/k6-smoke.js
+
+      # ---------- OPTIONAL: run a local server in CI instead ----------
+      # Uncomment the three steps below AND remove the "Run E2E against remote backend"
+      # step above if you prefer to spin up the server inside CI.
+      #
+      # - name: Start local server
+      #   env:
+      #     PORT: 5001
+      #     NODE_ENV: test
+      #     SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      #     SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      #     SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      #     SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      #     ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+      #   run: node server.js & echo $! > server.pid
+      #
+      # - name: Wait for server
+      #   run: npx wait-on http://localhost:5001/health
+      #
+      # - name: Run E2E (local)
+      #   env:
+      #     BASE_URL: http://localhost:5001
+      #     ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+      #   run: npm run test:e2e
+      #
+      # - name: Stop local server
+      #   if: always()
+      #   run: kill -9 $(cat server.pid) || true
