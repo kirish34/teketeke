@@ -28,86 +28,104 @@
   </div>
 
 <script>
-const TOKEN_KEY = 'TT_TOKEN';
-const USER_KEY  = 'TT_USER';
+  // Store the Supabase access token for bearer calls
+  const TOKEN_KEY = 'TT_TOKEN';
+  const USER_KEY  = 'TT_USER';
 
-function saveAuth({ access_token, user }) {
-  localStorage.setItem(TOKEN_KEY, access_token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user||{}));
-}
-
-async function api(path, opts={}) {
-  const res = await fetch(path, { headers:{'Content-Type':'application/json', ...(opts.headers||{})}, ...opts });
-  return res.json();
-}
-async function authed(path) {
-  const t = localStorage.getItem(TOKEN_KEY);
-  const res = await fetch(path, { headers:{'Authorization':'Bearer '+t} });
-  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); location.href='/login.html'; return; }
-  return res.json();
-}
-
-async function routeByRole() {
-  const me = await authed('/api/my-roles');
-  if (!me) return;
-
-  const saccos = me.saccos||[];
-  const mats = me.matatus||[];
-
-  // If user has both or multiple, send to chooser
-  const multi = (saccos.length + mats.length) > 1;
-  if (multi) {
-    location.href = '/choose.html';
-    return;
+  function saveAuth({ access_token, user }) {
+    localStorage.setItem(TOKEN_KEY, access_token || '');
+    localStorage.setItem(USER_KEY, JSON.stringify(user || {}));
   }
 
-  if (saccos.length === 1) {
-    const sid = saccos[0].sacco_id;
-    location.href = '/dashboard-sacco.html?sid='+encodeURIComponent(sid);
-    return;
-  }
-  if (mats.length === 1) {
-    const mid = mats[0].matatu_id;
-    location.href = '/dashboard-matatu.html?mid='+encodeURIComponent(mid);
-    return;
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      ...opts
+    });
+    return res.json();
   }
 
-  // No roles yet, just land on chooser (it will say “no roles”).
-  location.href = '/choose.html';
-}
-
-document.querySelector('#loginBtn').addEventListener('click', async ()=>{
-  const email = document.querySelector('#email').value.trim();
-  const password = document.querySelector('#password').value;
-  const box = document.querySelector('#err');
-  box.style.display='none';
-
-  if (!email || !password) {
-    box.textContent = 'Email and password required';
-    box.style.display='block';
-    return;
+  async function authed(path) {
+    const t = localStorage.getItem(TOKEN_KEY) || '';
+    const res = await fetch(path, { headers: { 'Authorization': 'Bearer ' + t } });
+    if (res.status === 401) {
+      localStorage.removeItem(TOKEN_KEY);
+      location.href = '/auth/login.html';
+      return null;
+    }
+    return res.json();
   }
 
-  try {
-    const r = await api('/auth/login', { method:'POST', body:JSON.stringify({ email, password }) });
-    if (!r.ok && !r.success) throw new Error(r.error || 'Login failed');
+  // Decide where to go based on roles
+  async function routeByRole() {
+    const me = await authed('/api/my-roles');
+    if (!me) return;
 
-    const token = r.access_token || r.session?.access_token;
-    if (!token) throw new Error('No access token returned');
-    saveAuth({ access_token: token, user: r.user });
+    const saccos  = me.saccos  || [];
+    const matatus = me.matatus || [];
 
-    await routeByRole();
-  } catch (e) {
-    box.textContent = e.message || 'Login failed';
-    box.style.display='block';
+    // multiple roles -> chooser
+    if ((saccos.length + matatus.length) > 1) {
+      location.href = '/auth/role-select.html';
+      return;
+    }
+
+    // SACCO routes
+    if (saccos.length === 1) {
+      const r = (saccos[0].role || '').toUpperCase();
+      location.href = (r === 'SACCO_ADMIN' || r === 'ADMIN')
+        ? '/sacco/sacco.html'
+        : '/sacco/staff.html';
+      return;
+    }
+
+    // Matatu routes
+    if (matatus.length === 1) {
+      const r = (matatus[0].member_role || '').toLowerCase();
+      location.href = (r === 'owner') ? '/matatu/owner.html' : '/matatu/conductor.html';
+      return;
+    }
+
+    // No roles yet
+    location.href = '/auth/role-select.html';
   }
-});
 
-// If already logged in, skip
-(function auto() {
-  const t = localStorage.getItem(TOKEN_KEY);
-  if (t) routeByRole();
-})();
+  document.querySelector('#loginBtn').addEventListener('click', async () => {
+    const email = document.querySelector('#email').value.trim();
+    const password = document.querySelector('#password').value;
+    const box = document.querySelector('#err');
+    box.style.display = 'none';
+
+    if (!email || !password) {
+      box.textContent = 'Email and password required';
+      box.style.display = 'block';
+      return;
+    }
+
+    try {
+      // Prefer the /api form (returns {success:true}), but also accept {ok:true}
+      const r = await api('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!(r.success || r.ok)) throw new Error(r.error || 'Login failed');
+      const token = r.access_token || r.session?.access_token;
+      if (!token) throw new Error('No access token returned');
+
+      saveAuth({ access_token: token, user: r.user });
+      await routeByRole();
+    } catch (e) {
+      box.textContent = e.message || 'Login failed';
+      box.style.display = 'block';
+    }
+  });
+
+  // already logged in? go straight to role routing
+  (function init() {
+    const t = localStorage.getItem(TOKEN_KEY);
+    if (t) routeByRole();
+  })();
 </script>
 </body>
 </html>

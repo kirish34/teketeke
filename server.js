@@ -40,6 +40,9 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // ---- Static dashboards ----
 app.use(express.static(path.join(__dirname, 'public')));
+// --- legacy paths -> new files ---
+app.get('/choose.html', (_req, res) => res.redirect(302, '/auth/role-select.html'));
+app.get('/admin/auth/login.html', (_req, res) => res.redirect(302, '/auth/login.html'));
 
 // ---- Helpers ----
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
@@ -396,45 +399,135 @@ app.post('/api/admin/rulesets', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// =======================
-// ADMIN: Lists for UI
-// =======================
-app.get('/api/admin/saccos', requireAdmin, async (req, res) => {
+// ✅ Confirm user email manually (dev helper)
+app.post('/admin/users/confirm', requireAdmin, async (req, res) => {
   try {
-    const q = (req.query.q || '').trim();
-    let query = sb.from('saccos').select('id,name,contact_name,contact_phone,contact_email,default_till,created_at').order('created_at', { ascending: false });
-    if (q) query = query.ilike('name', `%${q}%`);
-    const { data, error } = await query;
-    if (error) throw error;
-    res.json({ items: data || [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ ok: false, error: 'Missing email' });
+
+    // List users with service-role client and find by email
+    let target = null;
+    let page = 1;
+    const perPage = 1000;
+
+    while (!target) {
+      const { data, error } = await sbAdmin.auth.admin.listUsers({ page, perPage });
+      if (error) throw error;
+      const users = data?.users || [];
+      target = users.find(u => (u.email || '').toLowerCase() === email.toLowerCase());
+      if (!target && users.length < perPage) break; // no more pages
+      page += 1;
+    }
+
+    if (!target) return res.status(404).json({ ok: false, error: 'User not found' });
+
+    const { error: upErr } = await sbAdmin.auth.admin.updateUserById(target.id, {
+      email_confirm: true
+    });
+    if (upErr) throw upErr;
+
+    res.json({ ok: true, message: `Email ${email} confirmed successfully` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
-app.get('/api/admin/matatus', requireAdmin, async (req, res) => {
+// =======================
+// MEMBERS API + LOOKUPS
+// =======================
+async function rpcLookupUser(emailOrPattern) {
+  let rv = await sbAdmin.rpc('lookup_user_id_by_email', { p_email: emailOrPattern });
+  if (!rv || rv.error) rv = await sbAdmin.rpc('find_auth_user', { p_email: emailOrPattern });
+  if (rv.error) throw rv.error;
+  return rv.data || [];
+}
+
+app.get('/admin/users/lookup', requireAdmin, async (req, res) => {
   try {
-    const { sacco_id } = req.query;
-    let query = sb.from('matatus')
-      .select('id, sacco_id, number_plate, owner_name, owner_phone, vehicle_type, tlb_number, till_number, created_at')
-      .order('created_at', { ascending: false });
-    if (sacco_id) query = query.eq('sacco_id', sacco_id);
-    const { data, error } = await query;
-    if (error) throw error;
-    res.json({ items: data || [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const email = (req.query.email || '').trim();
+    if (!email) return res.status(400).json({ ok: false, error: 'email is required' });
+    const data = await rpcLookupUser(`%${email}%`);
+    res.json({ ok: true, data });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-app.get('/api/admin/transactions', requireAdmin, async (req, res) => {
+// ✅ Add /admin/saccos/add-user (accepts user_id OR email)
+app.post('/admin/saccos/add-user', requireAdmin, async (req, res) => {
   try {
-    const { sacco_id, status, limit = 50 } = req.query;
-    let query = sb.from('transactions')
-      .select('id,sacco_id,matatu_id,cashier_id,passenger_msisdn,fare_amount_kes,service_fee_kes,status,mpesa_receipt,created_at')
-      .order('created_at', { ascending: false }).limit(Number(limit));
-    if (sacco_id) query = query.eq('sacco_id', sacco_id);
-    if (status)   query = query.eq('status', status);
-    const { data, error } = await query;
+    const { sacco_id, role = 'STAFF', user_id, email } = req.body || {};
+    if (!sacco_id) return res.status(400).json({ ok: false, error: 'sacco_id is required' });
+
+    let uid = (user_id || '').trim();
+    if (!uid) {
+      const em = (email || '').trim();
+      if (!em) return res.status(400).json({ ok: false, error: 'email or user_id is required' });
+      try {
+        const matches = await rpcLookupUser(`%${em}%`);
+        if (!matches.length) return res.status(404).json({ ok: false, error: 'user not found by email' });
+        uid = matches[0].id;
+      } catch (e) {
+        return res.status(500).json({ ok: false, error: `lookup failed: ${e.message}` });
+      }
+    }
+
+    const { data, error } = await sbAdmin
+      .from('sacco_users')
+      .upsert({ sacco_id, user_id: uid, role }, { onConflict: 'sacco_id,user_id' })
+      .select('sacco_id,user_id,role')
+      .single();
+
     if (error) throw error;
-    res.json({ items: data || [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.json({ ok: true, link: data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/members/by-email', requireAdmin, async (req, res) => {
+  try {
+    const { email, matatu_id, role } = req.body || {};
+    if (!email || !matatu_id || !role) return res.status(400).json({ ok: false, error: 'email, matatu_id and role are required' });
+    if (!['owner', 'conductor'].includes(String(role))) return res.status(400).json({ ok: false, error: 'role must be "owner" or "conductor"' });
+
+    const users = await rpcLookupUser(email);
+    if (!users || users.length === 0) return res.status(404).json({ ok: false, error: 'user not found' });
+    const user_id = users[0].id;
+
+    const { data, error } = await sbAdmin
+      .from('matatu_members')
+      .upsert({ user_id, matatu_id, member_role: role }, { onConflict: 'user_id,matatu_id' })
+      .select('user_id, matatu_id, member_role')
+      .single();
+    if (error) throw error;
+    res.json({ ok: true, data });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.get('/members/of-matatu', requireAdmin, async (req, res) => {
+  try {
+    const { matatu_id } = req.query;
+    if (!matatu_id) return res.status(400).json({ ok: false, error: 'matatu_id is required' });
+    const { data, error } = await sb
+      .from('matatu_members')
+      .select('user_id, matatu_id, member_role')
+      .eq('matatu_id', matatu_id);
+    if (error) throw error;
+    res.json({ ok: true, data: data || [] });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// =======================
+// PRICING PREVIEW (fee quote)
+// =======================
+app.post('/api/fees/quote', async (req, res) => {
+  try {
+    const { sacco_id, matatu_id, amount } = req.body || {};
+    if (!sacco_id || !amount) return res.status(400).json({ success: false, error: 'sacco_id & amount required' });
+    const rules = await getRuleset(sacco_id);
+    const dailyDone = matatu_id ? await hasPaidSaccoFeeToday(matatu_id) : false;
+    const splits = computeSplits({ amount, rules, takeDailyFee: !dailyDone });
+    res.json({ success: true, splits });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 // =======================
@@ -457,20 +550,6 @@ app.get('/api/pos/latest/:cashierId', async (req, res) => {
     const { data, error } = await sb.from('pos_latest').select('amount_kes, updated_at').eq('cashier_id', req.params.cashierId).maybeSingle();
     if (error) throw error;
     res.json(data || {});
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// =======================
-// PRICING PREVIEW (fee quote)
-// =======================
-app.post('/api/fees/quote', async (req, res) => {
-  try {
-    const { sacco_id, matatu_id, amount } = req.body || {};
-    if (!sacco_id || !amount) return res.status(400).json({ success: false, error: 'sacco_id & amount required' });
-    const rules = await getRuleset(sacco_id);
-    const dailyDone = matatu_id ? await hasPaidSaccoFeeToday(matatu_id) : false;
-    const splits = computeSplits({ amount, rules, takeDailyFee: !dailyDone });
-    res.json({ success: true, splits });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -574,236 +653,6 @@ app.get('/api/cashier/status/:id', async (req, res) => {
     res.json({ final: ['SUCCESS','FAILED','TIMEOUT'].includes(status), status });
   } catch (err) { res.status(200).json({ final: true, status: 'FAILED', error: err.message }); }
 });
-
-// =======================
-// MATATU STAFF VIEW
-// =======================
-app.get('/api/matatu/payments', async (req, res) => {
-  try {
-    const tillRaw = (req.query.till ?? '').toString().trim();
-    const till = tillRaw.toLowerCase();
-    if (!tillRaw || till === 'null' || till === 'undefined') {
-      return res.status(400).json({ error: 'till required (e.g. /api/matatu/payments?till=987654)' });
-    }
-
-    const { data: m, error: mErr } = await sb.from('matatus').select('id').eq('till_number', tillRaw).maybeSingle();
-    if (mErr) throw mErr;
-    if (!m) return res.json([]);
-
-    const { data: txs, error: tErr } = await sb
-      .from('transactions')
-      .select('id, passenger_msisdn, fare_amount_kes, created_at')
-      .eq('matatu_id', m.id)
-      .eq('status', 'SUCCESS')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (tErr) throw tErr;
-
-    const txIds = (txs || []).map(t => t.id);
-    if (!txIds.length) return res.json([]);
-
-    const { data: leds, error: lErr } = await sb
-      .from('ledger_entries')
-      .select('transaction_id, type, amount_kes')
-      .in('transaction_id', txIds);
-    if (lErr) throw lErr;
-
-    const byTx = {};
-    (leds || []).forEach(le => {
-      if (!byTx[le.transaction_id]) byTx[le.transaction_id] = 0;
-      if (['SACCO_FEE','SAVINGS','LOAN_REPAY'].includes(le.type)) {
-        byTx[le.transaction_id] = round2(byTx[le.transaction_id] + Number(le.amount_kes));
-      }
-    });
-
-    const out = (txs || []).map(t => ({
-      name: 'Passenger',
-      phone: t.passenger_msisdn || '',
-      amount: Number(t.fare_amount_kes),
-      timestamp: new Date(t.created_at).toISOString(),
-      deducted: byTx[t.id] || 0
-    }));
-
-    res.json(out);
-  } catch (err) {
-    console.error('[payments-by-till]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =======================
-// ADMIN REPORTS
-// =======================
-app.get('/api/admin/transactions/fees', requireAdmin, async (_req, res) => {
-  try {
-    const start = startOfDayISO(), end = endOfDayISO();
-    const { data, error } = await sb
-      .from('ledger_entries')
-      .select('amount_kes, created_at, matatu_id, sacco_id')
-      .eq('type', 'SACCO_FEE')
-      .gte('created_at', start).lt('created_at', end)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json((data || []).map(r => ({
-      date: new Date(r.created_at).toLocaleDateString(),
-      time: new Date(r.created_at).toLocaleTimeString(),
-      sacco: r.sacco_id,
-      matatu: r.matatu_id,
-      amount: Number(r.amount_kes)
-    })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/admin/transactions/loans', requireAdmin, async (_req, res) => {
-  try {
-    const start = startOfDayISO(), end = endOfDayISO();
-    const { data, error } = await sb
-      .from('ledger_entries')
-      .select('amount_kes, created_at, matatu_id, sacco_id')
-      .eq('type', 'LOAN_REPAY')
-      .gte('created_at', start).lt('created_at', end)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json((data || []).map(r => ({
-      date: new Date(r.created_at).toLocaleDateString(),
-      time: new Date(r.created_at).toLocaleTimeString(),
-      sacco: r.sacco_id,
-      matatu: r.matatu_id,
-      amount: Number(r.amount_kes)
-    })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/admin/settlements', requireAdmin, async (req, res) => {
-  try {
-    const { sacco_id, date } = req.query;
-    if (!sacco_id) return res.status(400).json({ success: false, error: 'sacco_id required' });
-
-    const day = date ? new Date(date) : new Date();
-    const start = startOfDayISO(day), end = endOfDayISO(day);
-
-    const { data, error } = await sb
-      .from('ledger_entries')
-      .select('type, amount_kes, created_at')
-      .eq('sacco_id', sacco_id)
-      .gte('created_at', start).lt('created_at', end);
-    if (error) throw error;
-
-    const totals = (data || []).reduce((acc, r) => {
-      acc[r.type] = round2((acc[r.type] || 0) + Number(r.amount_kes));
-      return acc;
-    }, {});
-    const fare = totals.FARE || 0, savings = totals.SAVINGS || 0, loan = totals.LOAN_REPAY || 0, saccofee = totals.SACCO_FEE || 0;
-    const net_owner = round2(fare - savings - loan - saccofee);
-
-    res.json({ success: true, date: start.slice(0,10), totals: { ...totals, NET_TO_OWNER: net_owner } });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// =======================
-// USSD POOL
-// =======================
-app.get('/api/admin/ussd/pool/available', requireAdmin, async (req, res) => {
-  try {
-    const prefix = req.query.prefix || '*001*';
-    const { data, error } = await sb.from('ussd_pool').select('base, checksum').eq('allocated', false).order('base');
-    if (error) throw error;
-    const items = (data || []).map(r => ({ base: r.base, checksum: r.checksum, full_code: fullCode(prefix, r.base, r.checksum) }));
-    res.json({ items });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/admin/ussd/pool/allocated', requireAdmin, async (req, res) => {
-  try {
-    const prefix = req.query.prefix || '*001*';
-    const { data, error } = await sb
-      .from('ussd_pool')
-      .select('base, checksum, level, sacco_id, matatu_id, cashier_id, allocated_at')
-      .eq('allocated', true)
-      .order('allocated_at', { ascending: false });
-    if (error) throw error;
-    const items = (data || []).map(r => ({
-      full_code: fullCode(prefix, r.base, r.checksum),
-      level: r.level, sacco_id: r.sacco_id, matatu_id: r.matatu_id, cashier_id: r.cashier_id, allocated_at: r.allocated_at
-    }));
-    res.json({ items });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/admin/ussd/pool/assign-next', requireAdmin, async (req, res) => {
-  try {
-    const { level, sacco_id, matatu_id, cashier_id, prefix = '*001*' } = req.body || {};
-    const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
-
-    const { data: nextFree, error: qErr } = await sb
-      .from('ussd_pool')
-      .select('base, checksum')
-      .eq('allocated', false)
-      .order('base', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (qErr) throw qErr;
-    if (!nextFree) return res.status(400).json({ success: false, error: 'no free codes in pool' });
-
-    const { error: upErr } = await sbAdmin
-      .from('ussd_pool')
-      .update({
-        allocated: true,
-        level: assigned_type,
-        sacco_id: assigned_type === 'SACCO' ? assigned_id : null,
-        matatu_id: assigned_type === 'MATATU' ? assigned_id : null,
-        cashier_id: assigned_type === 'CASHIER' ? assigned_id : null,
-        allocated_at: new Date().toISOString()
-      })
-      .eq('base', nextFree.base);
-    if (upErr) throw upErr;
-
-    res.json({ success: true, ussd_code: fullCode(prefix, nextFree.base, nextFree.checksum) });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-app.post('/api/admin/ussd/bind-from-pool', requireAdmin, async (req, res) => {
-  try {
-    const { level, sacco_id, matatu_id, cashier_id, ussd_code, prefix = '*001*' } = req.body || {};
-    const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
-
-    const parsed = parseUssdDigits(ussd_code);
-    if (!parsed) return res.status(400).json({ success: false, error: 'invalid code format' });
-
-    const want = String(digitalRoot(parsed.base));
-    if (want !== parsed.check) {
-      return res.status(400).json({ success: false, error: `checksum mismatch; expected ${want}` });
-    }
-
-    const { data, error } = await sb.from('ussd_pool').select('allocated, checksum').eq('base', parsed.base).maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(400).json({ success: false, error: 'base not in pool' });
-    if (data.allocated) return res.status(400).json({ success: false, error: 'already allocated' });
-
-    const { error: upErr } = await sbAdmin
-      .from('ussd_pool')
-      .update({
-        allocated: true,
-        level: assigned_type,
-        sacco_id: assigned_type === 'SACCO' ? assigned_id : null,
-        matatu_id: assigned_type === 'MATATU' ? assigned_id : null,
-        cashier_id: assigned_type === 'CASHIER' ? assigned_id : null,
-        allocated_at: new Date().toISOString()
-      })
-      .eq('base', parsed.base);
-    if (upErr) throw upErr;
-
-    res.json({ success: true, ussd_code: fullCode(prefix, parsed.base, parsed.check) });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-function resolveTarget(level, ids) {
-  const L = String(level || '').toUpperCase();
-  if (L === 'MATATU' && ids.matatu_id) return { assigned_type: 'MATATU', assigned_id: ids.matatu_id };
-  if (L === 'SACCO'  && ids.sacco_id)  return { assigned_type: 'SACCO',  assigned_id: ids.sacco_id };
-  if (L === 'CASHIER'&& ids.cashier_id)return { assigned_type: 'CASHIER',assigned_id: ids.cashier_id };
-  throw new Error('level and matching id required');
-}
 
 // =======================
 // PUBLIC / SACCO / OWNER UTILITIES
@@ -922,58 +771,6 @@ app.get('/api/matatu/:matatuId/summary', async (req, res) => {
 });
 
 // =======================
-// MEMBERS API
-// =======================
-async function rpcLookupUser(emailOrPattern) {
-  let rv = await sbAdmin.rpc('lookup_user_id_by_email', { p_email: emailOrPattern });
-  if (!rv || rv.error) rv = await sbAdmin.rpc('find_auth_user', { p_email: emailOrPattern });
-  if (rv.error) throw rv.error;
-  return rv.data || [];
-}
-
-app.get('/admin/users/lookup', requireAdmin, async (req, res) => {
-  try {
-    const email = (req.query.email || '').trim();
-    if (!email) return res.status(400).json({ ok: false, error: 'email is required' });
-    const data = await rpcLookupUser(`%${email}%`);
-    res.json({ ok: true, data });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-
-app.post('/members/by-email', requireAdmin, async (req, res) => {
-  try {
-    const { email, matatu_id, role } = req.body || {};
-    if (!email || !matatu_id || !role) return res.status(400).json({ ok: false, error: 'email, matatu_id and role are required' });
-    if (!['owner', 'conductor'].includes(String(role))) return res.status(400).json({ ok: false, error: 'role must be "owner" or "conductor"' });
-
-    const users = await rpcLookupUser(email);
-    if (!users || users.length === 0) return res.status(404).json({ ok: false, error: 'user not found' });
-    const user_id = users[0].id;
-
-    const { data, error } = await sbAdmin
-      .from('matatu_members')
-      .upsert({ user_id, matatu_id, member_role: role }, { onConflict: 'user_id,matatu_id' })
-      .select('user_id, matatu_id, member_role')
-      .single();
-    if (error) throw error;
-    res.json({ ok: true, data });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-
-app.get('/members/of-matatu', requireAdmin, async (req, res) => {
-  try {
-    const { matatu_id } = req.query;
-    if (!matatu_id) return res.status(400).json({ ok: false, error: 'matatu_id is required' });
-    const { data, error } = await sb
-      .from('matatu_members')
-      .select('user_id, matatu_id, member_role')
-      .eq('matatu_id', matatu_id);
-    if (error) throw error;
-    res.json({ ok: true, data: data || [] });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-
-// =======================
 // DAILY FEES
 // =======================
 app.post('/fees/record', async (req, res) => {
@@ -1038,24 +835,108 @@ app.get('/reports/matatu/:id/fees/summary', async (req, res) => {
 });
 
 // =======================
-// USSD SIMULATOR (dev)
+// USSD POOL
 // =======================
-app.post('/flashpay/confirm', async (req, res) => {
+app.get('/api/admin/ussd/pool/available', requireAdmin, async (req, res) => {
   try {
-    const { ussdCode, phone, amount = 50, sacco_id, matatu_id, cashier_id } = req.body || {};
-    if (!ussdCode || !phone || !sacco_id) return res.status(400).json({ success: false, message: 'ussdCode, phone, sacco_id required' });
-    const r = await fetchLocal('/api/cashier/initiate', {
-      amount, msisdn: phone, sacco_id, matatu_id, cashier_id, ussd_code: ussdCode
-    });
-    res.json({ success: true, message: 'STK push simulated', ...r });
+    const prefix = req.query.prefix || '*001*';
+    const { data, error } = await sb.from('ussd_pool').select('base, checksum').eq('allocated', false).order('base');
+    if (error) throw error;
+    const items = (data || []).map(r => ({ base: r.base, checksum: r.checksum, full_code: fullCode(prefix, r.base, r.checksum) }));
+    res.json({ items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/ussd/pool/allocated', requireAdmin, async (req, res) => {
+  try {
+    const prefix = req.query.prefix || '*001*';
+    const { data, error } = await sb
+      .from('ussd_pool')
+      .select('base, checksum, level, sacco_id, matatu_id, cashier_id, allocated_at')
+      .eq('allocated', true)
+      .order('allocated_at', { ascending: false });
+    if (error) throw error;
+    const items = (data || []).map(r => ({
+      full_code: fullCode(prefix, r.base, r.checksum),
+      level: r.level, sacco_id: r.sacco_id, matatu_id: r.matatu_id, cashier_id: r.cashier_id, allocated_at: r.allocated_at
+    }));
+    res.json({ items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/ussd/pool/assign-next', requireAdmin, async (req, res) => {
+  try {
+    const { level, sacco_id, matatu_id, cashier_id, prefix = '*001*' } = req.body || {};
+    const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
+
+    const { data: nextFree, error: qErr } = await sb
+      .from('ussd_pool')
+      .select('base, checksum')
+      .eq('allocated', false)
+      .order('base', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (qErr) throw qErr;
+    if (!nextFree) return res.status(400).json({ success: false, error: 'no free codes in pool' });
+
+    const { error: upErr } = await sbAdmin
+      .from('ussd_pool')
+      .update({
+        allocated: true,
+        level: assigned_type,
+        sacco_id: assigned_type === 'SACCO' ? assigned_id : null,
+        matatu_id: assigned_type === 'MATATU' ? assigned_id : null,
+        cashier_id: assigned_type === 'CASHIER' ? assigned_id : null,
+        allocated_at: new Date().toISOString()
+      })
+      .eq('base', nextFree.base);
+    if (upErr) throw upErr;
+
+    res.json({ success: true, ussd_code: fullCode(prefix, nextFree.base, nextFree.checksum) });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-async function fetchLocal(pathname, body) {
-  const res = await fetch(`http://localhost:${PORT}${pathname}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-  });
-  return await res.json();
+app.post('/api/admin/ussd/bind-from-pool', requireAdmin, async (req, res) => {
+  try {
+    const { level, sacco_id, matatu_id, cashier_id, ussd_code, prefix = '*001*' } = req.body || {};
+    const { assigned_type, assigned_id } = resolveTarget(level, { sacco_id, matatu_id, cashier_id });
+
+    const parsed = parseUssdDigits(ussd_code);
+    if (!parsed) return res.status(400).json({ success: false, error: 'invalid code format' });
+
+    const want = String(digitalRoot(parsed.base));
+    if (want !== parsed.check) {
+      return res.status(400).json({ success: false, error: `checksum mismatch; expected ${want}` });
+    }
+
+    const { data, error } = await sb.from('ussd_pool').select('allocated, checksum').eq('base', parsed.base).maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(400).json({ success: false, error: 'base not in pool' });
+    if (data.allocated) return res.status(400).json({ success: false, error: 'already allocated' });
+
+    const { error: upErr } = await sbAdmin
+      .from('ussd_pool')
+      .update({
+        allocated: true,
+        level: assigned_type,
+        sacco_id: assigned_type === 'SACCO' ? assigned_id : null,
+        matatu_id: assigned_type === 'MATATU' ? assigned_id : null,
+        cashier_id: assigned_type === 'CASHIER' ? assigned_id : null,
+        allocated_at: new Date().toISOString()
+      })
+      .eq('base', parsed.base);
+    if (upErr) throw upErr;
+
+    res.json({ success: true, ussd_code: fullCode(prefix, parsed.base, parsed.check) });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+function resolveTarget(level, ids) {
+  const L = String(level || '').toUpperCase();
+  if (L === 'MATATU' && ids.matatu_id) return { assigned_type: 'MATATU', assigned_id: ids.matatu_id };
+  if (L === 'SACCO'  && ids.sacco_id)  return { assigned_type: 'SACCO',  assigned_id: ids.sacco_id };
+  if (L === 'CASHIER'&& ids.cashier_id)return { assigned_type: 'CASHIER',assigned_id: ids.cashier_id };
+  throw new Error('level and matching id required');
 }
 
 // ---- Member-scoped reads (aliases) ----
