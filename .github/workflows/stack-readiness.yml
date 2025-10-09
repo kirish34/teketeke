@@ -1,0 +1,75 @@
+name: Stack Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base URL to probe (deploy or alias)"
+        required: true
+        default: "https://teketeke-an8u1azlg-teketeke.vercel.app"
+      check_domain:
+        description: "Also check apex/www + HSTS?"
+        type: boolean
+        required: true
+        default: true
+      apex:
+        description: "Apex domain (if check_domain)"
+        required: false
+        default: "teketeke.app"
+      www:
+        description: "WWW domain (if check_domain)"
+        required: false
+        default: "www.teketeke.app"
+      strict:
+        description: "Fail the job if any FAIL lines appear"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run readiness report
+        id: run
+        env:
+          BASE: ${{ inputs.base }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          APEX: ${{ inputs.check_domain && inputs.apex || '' }}
+          WWW: ${{ inputs.check_domain && inputs.www || '' }}
+        run: |
+          set -euo pipefail
+          bash scripts/stack-readiness.sh | tee readiness.txt
+          # capture summary to job summary
+          {
+            echo "### Stack Readiness Report"
+            echo
+            echo "**Target:** $BASE"
+            echo
+            sed -n '1,999p' readiness.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '^FAIL |' readiness.txt; then
+            echo "had_failures=true" >> $GITHUB_OUTPUT
+          else
+            echo "had_failures=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-report
+          path: |
+            readiness.txt
+            REPORTS/READINESS.md
+          retention-days: 7
+      - name: Enforce strict mode
+        if: ${{ inputs.strict && steps.run.outputs.had_failures == 'true' }}
+        run: |
+          echo "FAIL lines detected and strict=true — failing the job."
+          exit 1
+
