@@ -1,9 +1,9 @@
-<!doctype html>
+ï»¿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>TekeTeke Transport • Dashboards</title>
+  <title>TekeTeke Transport â€¢ Dashboards</title>
   <style>
     :root{--brand:#1976d2;--brand-700:#135ba1;--ink:#0f172a;--bg:#f5f7fb;--panel:#fff;--muted:#6b7280;--border:#e5e7eb}
     *{box-sizing:border-box} html,body{margin:0;padding:0}
@@ -46,7 +46,7 @@
         <a class="btn" href="/"><span>??</span>Home</a>
         <a class="btn primary" href="/sacco/admin.html"><span>??</span>SACCO Admin</a>
         <a class="btn" href="/sacco/sacco.html"><span>?????</span>SACCO Staff</a>
-        <a class="btn" href="/admin.html"><span>??</span>Matatu Owner</a>
+        <a class="btn" href="/matatu/owner.html"><span>MO</span>Matatu Owner</a>
         <a class="btn" href="/auth/role-select.html"><span>??</span>Logins</a>
       </nav>
 
@@ -69,36 +69,51 @@
 
   <!-- Tiles -->
   <main class="grid">
+    <a class="card" href="/admin.html">
+      <div class="ico">SA</div>
+      <div><strong>System Admin</strong><div class="muted">Platform overview & ops</div></div>
+      <span class="go">></span>
+    </a>
+
     <a class="card" href="/sacco/admin.html">
-      <div class="ico">??</div>
+      <div class="ico">SA</div>
       <div><strong>SACCO Admin</strong><div class="muted">SACCOs, Matatus, USSD pool, fees</div></div>
-      <span class="go">?</span>
+      <span class="go">></span>
     </a>
 
     <a class="card" href="/sacco/sacco.html">
-      <div class="ico">?????</div>
+      <div class="ico">SS</div>
       <div><strong>SACCO Staff</strong><div class="muted">Daily operations & support</div></div>
-      <span class="go">?</span>
+      <span class="go">></span>
     </a>
 
-    <a class="card" href="/admin.html">
-      <div class="ico">??</div>
+    <a class="card" href="/matatu/owner.html">
+      <div class="ico">MO</div>
       <div><strong>Matatu Owner</strong><div class="muted">Trips, repayments, summaries</div></div>
-      <span class="go">?</span>
+      <span class="go">></span>
+    </a>
+
+    <a class="card" href="/conductor/console.html">
+      <div class="ico">C</div>
+      <div><strong>Conductor</strong><div class="muted">Collect fares, view activity</div></div>
+      <span class="go">></span>
     </a>
   </main>
 
   <footer>
-    © <span id="yr"></span> TekeTeke Transport
+    Â© <span id="yr"></span> TekeTeke Transport
   </footer>
 
   <script>
-    // admin token store
+    // admin token store (prefer tt_root_token; mirror legacy key)
     const $ = s => document.querySelector(s);
-    $('#adm_token').value = localStorage.getItem('tt_admin_token') || '';
+    const current = localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token') || '';
+    $('#adm_token').value = current;
     $('#save_token').onclick = () => {
-      localStorage.setItem('tt_admin_token', $('#adm_token').value.trim());
-      const b = $('#save_token'); const old = b.textContent; b.textContent = 'Saved ?';
+      const v = $('#adm_token').value.trim();
+      localStorage.setItem('tt_root_token', v);
+      localStorage.setItem('tt_admin_token', v);
+      const b = $('#save_token'); const old = b.textContent; b.textContent = 'Saved';
       setTimeout(()=> b.textContent = old, 900);
     };
     document.getElementById('yr').textContent = new Date().getFullYear();

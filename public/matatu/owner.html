@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Matatu Owner Console</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif;margin:0;padding:24px;background:#f8fafc;color:#0f172a}
+    a{color:#1976d2;text-decoration:none}
+    .muted{color:#6b7280}
+    .wrap{max-width:900px;margin:0 auto}
+    .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+    .badge{background:#eef6ff;color:#0b3c74;border:1px solid #cfe3ff;padding:2px 8px;border-radius:999px;font-size:12px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <strong>Matatu Owner Console</strong>
+      <span class="badge">WIP — page shell</span>
+      <span class="muted" style="margin-left:auto"><a href="/">Home</a></span>
+    </div>
+    <div class="card">
+      <p class="muted">This is a minimal placeholder. Functionality will be added here.</p>
+    </div>
+  </div>
+  <script>
+    const admin = !!localStorage.getItem('tt_root_token');
+    const member = !!localStorage.getItem('auth_token');
+    console.log('ADMIN_TOKEN?', admin, 'AUTH_TOKEN?', member);
+  </script>
+</body>
+</html>
+

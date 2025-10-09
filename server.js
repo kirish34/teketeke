@@ -379,6 +379,17 @@ app.use(
 app.get('/choose.html', (_req, res) => res.redirect(302, '/auth/role-select.html'));
 app.get('/admin/auth/login.html', (_req, res) => res.redirect(302, '/auth/login.html'));
 
+// Serve core dashboard pages directly from /public to avoid JSON 404s
+function sendPublic(res, rel) {
+  return res.sendFile(path.join(__dirname, 'public', rel));
+}
+app.get('/admin.html', (_req, res) => sendPublic(res, 'admin.html'));
+app.get('/sacco/admin.html', (_req, res) => sendPublic(res, path.join('sacco', 'admin.html')));
+app.get('/sacco/sacco.html', (_req, res) => sendPublic(res, path.join('sacco', 'sacco.html')));
+app.get('/matatu/owner.html', (_req, res) => sendPublic(res, path.join('matatu', 'owner.html')));
+app.get('/conductor/console.html', (_req, res) => sendPublic(res, path.join('conductor', 'console.html')));
+app.get('/auth/role-select.html', (_req, res) => sendPublic(res, path.join('auth', 'role-select.html')));
+
 // =======================
 // Auth & Roles
 // =======================
@@ -1406,7 +1417,10 @@ const pageAliases = {
   '/sacco/staff-dashboard.html': '/sacco/sacco.html',
   '/sacco-admin-dashboard.htm': '/sacco/admin.html',
   '/sacco-staff-dashboard.htm': '/sacco/sacco.html',
-  '/matatu-owner-dashboard.html': '/admin.html',
+  '/matatu-owner-dashboard.html': '/matatu/owner.html',
+  '/matatu-owner-dashboard.htm': '/matatu/owner.html',
+  '/conductor-dashboard.html': '/conductor/console.html',
+  '/conductor-dashboard.htm': '/conductor/console.html',
   '/auth/role-select.htm': '/auth/role-select.html',
 };
 for (const [from, to] of Object.entries(pageAliases)) {
