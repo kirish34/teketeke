@@ -12,13 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20.19.0'
+          cache: 'npm'
 
-      - name: Lint openapi.yaml with Redocly
-        run: npx -y @redocly/cli@latest lint openapi.yaml
+      - name: Lint OpenAPI Spec
+        run: npx -y @redocly/cli@2.5.0 lint openapi.yaml
 
       - name: Validate with swagger-cli (OpenAPI 3)
         run: npx -y swagger-cli@4 validate openapi.yaml
