@@ -179,6 +179,24 @@ CORS_ORIGIN=https://teketeke-3wmdki35z-teketeke.vercel.app
 
 (Comma-separate if multiple origins), then redeploy backend.
 
+## Project Doctor
+
+Run a one-shot audit for backend, docs, security headers, CORS, and Supabase reachability.
+
+1) Make executable and run (Mac/Linux/WSL/Git Bash):
+
+```
+chmod +x scripts/project-doctor.sh
+APP_URL=https://<your-vercel-app>.vercel.app \
+API_URL=https://<your-vercel-app>.vercel.app \
+SUPABASE_URL=https://xxxxx.supabase.co \
+SUPABASE_ANON_KEY=eyJ... \
+ADMIN_TOKEN=claire.1leah.2seline.3zara.4 \
+scripts/project-doctor.sh
+```
+
+On Windows PowerShell, set env vars with `$env:APP_URL="..."` etc, then run via WSL or Git Bash.
+
 ### 5) Docs CSP (env)
 
 To allow extra script/style hosts for Swagger/Redoc without code changes, set in Vercel env:
