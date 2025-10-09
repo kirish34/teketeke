@@ -15,7 +15,8 @@
                     "seed:ussd-pool":  "node scripts/seed-ussd-pool.js",
                     "perf:load":  "k6 run scripts/k6-load.js",
                     "perf:smoke":  "cross-env MODE=smoke k6 run scripts/k6-load.js",
-                    "perf:spike":  "cross-env MODE=spike k6 run scripts/k6-load.js"
+                    "perf:spike":  "cross-env MODE=spike k6 run scripts/k6-load.js",
+                    "check:pkg":  "bash scripts/check-package-json.sh"
                 },
     "dependencies":  {
                          "@supabase/supabase-js":  "^2.45.0",

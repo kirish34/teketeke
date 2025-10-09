@@ -22,8 +22,9 @@ jobs:
       SEED_START: "110"
       SEED_COUNT: "30"
 
-    steps:
-      - name: Checkout
+    
+      - name: Validate package.json (no BOM + valid JSON)
+        run: bash scripts/check-package-json.sh- name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -140,3 +141,14 @@ jobs:
         run: |
           code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/api/sacco/activity")
           test "$code" = "401" -o "$code" = "403"
+
+      - name: /metrics/prom requires admin
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics/prom")
+          test "$code" = "401"
+
+      - name: /metrics/prom with admin -> 200
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics/prom" -H "Authorization: Bearer $ADMIN_TOKEN")
+          test "$code" = "200"
+
