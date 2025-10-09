@@ -53,12 +53,17 @@ const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { pers
 const app = express();
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
+  // Disable global CSP; route-specific CSP is applied for docs only
+  contentSecurityPolicy: false,
 }));
-const allowed = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+const allowlist = [process.env.APP_URL, process.env.API_URL]
+  .concat((process.env.CORS_ORIGIN || '').split(','))
+  .map(s => (s || '').trim())
+  .filter(Boolean);
 app.use(cors({
   origin: function (origin, cb) {
-    if (!origin || !allowed.length) return cb(null, true);
-    if (allowed.includes(origin)) return cb(null, true);
+    if (!origin || !allowlist.length) return cb(null, true);
+    if (allowlist.includes(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS: ' + origin));
   },
   credentials: true,
@@ -74,6 +79,10 @@ app.use((req, _res, next) => {
   req.id = typeof hdr === 'string' && hdr.trim() ? hdr.trim() : cryptoRandomId();
   next();
 });
+
+// Rate limiting for auth and user endpoints
+const authLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
+app.use(['/api/auth/login', '/api/me'], authLimiter);
 
 // structured logs with pino
 const pretty = process.env.PRETTY_LOGS === '1' && NODE_ENV !== 'production';
