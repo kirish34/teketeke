@@ -188,18 +188,26 @@ function isAdminReq(req) {
 
 // ---- Docs CSP (only on /docs & /redoc) ----
 function docsCSP(_req, res, next) {
-  res.setHeader(
-    'Content-Security-Policy',
-    [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline' https://unpkg.com",
-      "img-src 'self' data: https:",
-      "font-src 'self' data:",
-      "connect-src 'self'",
-      "frame-ancestors 'self'",
-    ].join('; ')
-  );
+  const extras = String(process.env.DOCS_CSP_EXTRA || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((h) => (h.startsWith('http') ? h : `https://${h}`));
+  const scriptSrc = ["'self'", 'https://unpkg.com', 'https://cdn.jsdelivr.net', ...extras].join(' ');
+  const styleSrc = ["'self'", 'https://unpkg.com', 'https://cdn.jsdelivr.net', ...extras].join(' ');
+  const csp = [
+    "default-src 'self'",
+    `script-src ${scriptSrc}`,
+    `style-src ${styleSrc} 'unsafe-inline'`,
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "font-src 'self' data:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    'upgrade-insecure-requests',
+  ].join('; ');
+  res.setHeader('Content-Security-Policy', csp);
   next();
 }
 
@@ -243,6 +251,29 @@ app.get('/__version', (_req, res) => {
 app.get('/__healthz', (_req, res) => {
   const ok = !!(SUPABASE_URL && (SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE));
   res.json({ ok, has_db: !!(SUPABASE_URL && SUPABASE_ANON_KEY), has_db_admin: !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE) });
+});
+
+// Prometheus metrics (admin-gated)
+app.get('/metrics/prom', (req, res) => {
+  const auth = (req.headers.authorization || '').trim();
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const legacy = req.headers['x-admin-token'];
+  if (!ADMIN_TOKEN || (bearer !== ADMIN_TOKEN && legacy !== ADMIN_TOKEN)) {
+    return res.status(401).type('text/plain').send('# unauthorized\n');
+  }
+  const lines = [];
+  lines.push('# HELP teketeke_up 1 if the app is up');
+  lines.push('# TYPE teketeke_up gauge');
+  lines.push('teketeke_up 1');
+  lines.push('# HELP teketeke_build_info Build/commit metadata');
+  lines.push('# TYPE teketeke_build_info gauge');
+  const ver = process.env.VERCEL_GIT_COMMIT_SHA || process.env.COMMIT_SHA || 'dev';
+  lines.push(`teketeke_build_info{version="${ver}",node="${process.version}"} 1`);
+  lines.push('# HELP process_uptime_seconds Process uptime in seconds');
+  lines.push('# TYPE process_uptime_seconds counter');
+  lines.push('process_uptime_seconds ' + Math.floor(process.uptime()));
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.send(lines.join('\n') + '\n');
 });
 
 // =======================
