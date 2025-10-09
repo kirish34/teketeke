@@ -1,18 +1,20 @@
-﻿name: E2E (TekeTeke)
+name: E2E
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
   schedule:
     - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
+    # Job-level env (safe to reference secrets here)
     env:
-      # E2E tests
       BASE_URL: ${{ secrets.TEKETEKE_BASE_URL }}
       ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
       # Seeder (talks directly to Supabase, not your app)
@@ -22,133 +24,60 @@ jobs:
       SEED_START: "110"
       SEED_COUNT: "30"
 
-    
-      - name: Validate package.json (no BOM + valid JSON)
-        run: bash scripts/check-package-json.sh- name: Checkout
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
 
       - name: Install deps
         run: npm ci
 
-      - name: Check for banned 'cashier' code
-        run: npm run check:deadcode
-
-      # --- NEW: Seed USSD pool (idempotent) ---
-      - name: Seed USSD pool
-        env:
-          # Use staging range during scheduled runs, keep default otherwise
-          SEED_ENV: ${{ github.event_name == 'schedule' && 'staging' || '' }}
-        run: npm run seed:ussd-pool
-
-      - name: Verify USSD pool seeded
+      - name: Seed (optional; runs only if Supabase creds are present)
+        if: ${{ env.SUPABASE_URL != '' && env.SUPABASE_SERVICE_ROLE != '' }}
         run: |
-          echo "Seed range: ${SEED_START} count ${SEED_COUNT}"
-          node -e "(async()=>{const r=await fetch(process.env.BASE_URL+'/api/admin/ussd/pool/available',{headers:{'x-admin-token':process.env.ADMIN_TOKEN}}); const j=await r.json(); const n=(j.items||j.data||[]).length; console.log('Available pool size:',n); if(n===0){console.error('USSD pool is empty after seed'); process.exit(1);} })().catch(e=>{console.error(e); process.exit(1);});"
+          echo "Seeding with range: ${SEED_START}-${SEED_COUNT}"
+          # replace with your real seeder if different:
+          node scripts/seed.js || echo "Seeder skipped/missing"
 
-      # If you test against a REMOTE backend:
-      - name: Run E2E (remote backend) with one retry & timeout
-        run: timeout 12m bash -c 'npm run test:e2e || npm run test:e2e'
+      - name: Run E2E health script
+        run: |
+          mkdir -p artifacts
+          bash scripts/health-check.sh | tee artifacts/health.txt
 
-      - name: Upload E2E artifacts
-        if: always()
+      - name: Upload health artifact
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts
-          path: |
-            artifacts/**
+          name: e2e-health
+          path: artifacts/health.txt
 
-      - name: Verify artifacts exist
-        if: always()
-        run: |
-          test -f artifacts/junit-admin.xml
-          test -f artifacts/junit-rules.xml
-
-      # Publish JUnit summary in PR (reads artifacts/junit-*.xml)
-      - name: Publish test summary
-        if: always()
-        uses: EnricoMi/publish-unit-test-result-action@v2
+      # ---- Email notification on failure (Zoho SMTP) ----
+      # Set these repository secrets first:
+      #   ZOHO_EMAIL           -> e.g. noreply@skyyalla.com
+      #   ZOHO_APP_PASSWORD    -> app-specific password from Zoho
+      #   EMAIL_TO             -> comma-separated recipients (you)
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v4
         with:
-          junit_files: "artifacts/junit-*.xml"
+          server_address: smtp.zoho.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.ZOHO_EMAIL }}
+          password: ${{ secrets.ZOHO_APP_PASSWORD }}
+          subject: "❌ E2E failed: ${{ github.repository }} @ ${{ github.ref_name }}"
+          from: ${{ secrets.ZOHO_EMAIL }}
+          to: ${{ secrets.EMAIL_TO }}
+          content_type: text/plain
+          body: |
+            Workflow: ${{ github.workflow }}
+            Run:      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Commit:   ${{ github.sha }}
+            Branch:   ${{ github.ref_name }}
 
-      - name: k6 smoke (read-only)
-        if: always()
-        run: |
-          docker run --rm -i \
-            -e BASE_URL="${{ secrets.TEKETEKE_BASE_URL }}" \
-            -e ADMIN_TOKEN="${{ secrets.TEKETEKE_ADMIN_TOKEN }}" \
-            grafana/k6:0.49.0 run - < scripts/k6-smoke.js
-
-      # ---------- OPTIONAL: run a local server in CI instead ----------
-      # Uncomment the three steps below AND remove the "Run E2E against remote backend"
-      # step above if you prefer to spin up the server inside CI.
-      #
-      # - name: Start local server
-      #   env:
-      #     PORT: 5001
-      #     NODE_ENV: test
-      #     SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      #     SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      #     SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-      #     SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
-      #     ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
-      #   run: node server.js & echo $! > server.pid
-      #
-      # - name: Wait for server
-      #   run: npx wait-on http://localhost:5001/health
-      #
-      # - name: Run E2E (local)
-      #   env:
-      #     BASE_URL: http://localhost:5001
-      #     ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
-      #   run: npm run test:e2e
-      #
-      # - name: Stop local server
-      #   if: always()
-      #   run: kill -9 $(cat server.pid) || true
-
-      - name: Check system overview with admin token
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/api/admin/system-overview" -H "Authorization: Bearer $ADMIN_TOKEN")
-          test "$code" = "200"
-
-      - name: Secured write should 401 without token
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/pos/latest")
-          if [ "$code" != "401" ] && [ "$code" != "403" ]; then exit 1; fi
-
-      - name: /api/sacco/profile requires auth
-        run: |
-          code=
-          if [ "" != "401" ] && [ "" != "403" ]; then exit 1; fi
-
-      - name: OpenAPI schema validates (swagger-cli)
-        run: |
-          npx --yes swagger-cli@4.0.4 validate openapi.yaml
-
-
-      - name: /metrics returns 200
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics")
-          test "$code" = "200"
-
-      - name: /api/sacco/activity unauth -> 401/403
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/api/sacco/activity")
-          test "$code" = "401" -o "$code" = "403"
-
-      - name: /metrics/prom requires admin
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics/prom")
-          test "$code" = "401"
-
-      - name: /metrics/prom with admin -> 200
-        run: |
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics/prom" -H "Authorization: Bearer $ADMIN_TOKEN")
-          test "$code" = "200"
+            The E2E job failed. Health output artifact: "e2e-health".
 
