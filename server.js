@@ -8,7 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const pinoHttp = require('pino-http');
 const jwt = require('jsonwebtoken');
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require('@supabase/supabase-js');\nconst { getEnv } = require('./env');
 const YAML = require('yaml');
 const swaggerUi = require('swagger-ui-express');
 const helmet = require('helmet');
@@ -28,16 +28,7 @@ const {
 } = process.env;
 
 // Basic env validation (no secrets logged)
-const missingEnv = [];
-if (!PORT) missingEnv.push('PORT');
-if (!SUPABASE_URL) missingEnv.push('SUPABASE_URL');
-if (!SUPABASE_ANON_KEY) missingEnv.push('SUPABASE_ANON_KEY');
-if (!SUPABASE_SERVICE_ROLE) missingEnv.push('SUPABASE_SERVICE_ROLE');
-if (!ADMIN_TOKEN) missingEnv.push('ADMIN_TOKEN');
-if (missingEnv.length) {
-  console.error('[ENV] Missing required vars:', missingEnv.join(', '));
-  process.exit(1);
-}
+const _envState = getEnv();\nif (!_envState.ok) {\n  console.warn('[ENV] Missing required vars (non-fatal):', _envState.missing.join(', '));\n}\n}
 
 // ---- Global fetch fallback (Node < 18) ----
 (async () => {
@@ -47,8 +38,7 @@ if (missingEnv.length) {
 })().catch(() => { /* ignore */ });
 
 // ---- Supabase clients ----
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
-const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { persistSession: false } });
+let sb = null;\nlet sbAdmin = null;\ntry {\n  if (SUPABASE_URL && SUPABASE_ANON_KEY) {\n    sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });\n  }\n  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE) {\n    sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { persistSession: false } });\n  }\n} catch (e) {\n  console.warn('[Supabase] client init skipped due to env:', e && e.message);\n}\n
 
 // ---- App setup ----
 const app = express();
@@ -1560,3 +1550,15 @@ app.use((req, res) => {
 
 // Export app for Vercel @vercel/node
 module.exports = app;
+
+
+
+
+
+// Healthz (does not touch DB)
+app.get('/__healthz', (_req, res) => {
+  const state = require('./env').getEnv();
+  const hasDbAnon = !!(state.values.SUPABASE_URL && state.values.SUPABASE_ANON_KEY);
+  const hasDbSvc  = !!(state.values.SUPABASE_URL && state.values.SUPABASE_SERVICE_ROLE);
+  res.json({ ok: state.ok, missing: state.missing, has_db: hasDbAnon, has_db_admin: hasDbSvc });
+});
