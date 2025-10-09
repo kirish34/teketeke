@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TekeTeke — Choose Role</title>
+  <title>TekeTeke â€” Choose Role</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;display:grid;place-items:center;height:100vh}
@@ -24,8 +24,18 @@
       <input id="rootTok" placeholder="System Admin token (optional)" />
       <button id="saveRoot" class="btn">Save</button>
     </div>
-    <div class="muted">If you’re a System Admin, paste your root token to unlock <code>/admin.html</code>.</div>
+    <div class="muted">If youâ€™re a System Admin, paste your root token to unlock <code>/admin.html</code>.</div>
     <a class="link" href="/admin.html">Go to System Admin Dashboard</a>
+
+    <hr/>
+    <div class="muted">Or jump directly to a dashboard:</div>
+    <div class="row" style="flex-wrap:wrap">
+      <a class="btn" href="/admin.html">System Admin</a>
+      <a class="btn" href="/sacco/admin.html">SACCO Admin</a>
+      <a class="btn" href="/sacco/sacco.html">SACCO Staff</a>
+      <a class="btn" href="/matatu/owner.html">Matatu Owner</a>
+      <a class="btn" href="/conductor/console.html">Conductor</a>
+    </div>
   </div>
 
   <script>
