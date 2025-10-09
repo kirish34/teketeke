@@ -1,9 +1,9 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>TekeTeke Transport • Dashboards</title>
+  <title>TekeTeke Transport � Dashboards</title>
   <style>
     :root{--brand:#1976d2;--brand-700:#135ba1;--ink:#0f172a;--bg:#f5f7fb;--panel:#fff;--muted:#6b7280;--border:#e5e7eb}
     *{box-sizing:border-box} html,body{margin:0;padding:0}
@@ -43,11 +43,11 @@
       </div>
 
       <nav class="nav">
-        <a class="btn" href="/"><span>🏠</span>Home</a>
-        <a class="btn primary" href="/sacco/admin-dashboard.html"><span>🏢</span>SACCO Admin</a>
-        <a class="btn" href="/sacco/staff-dashboard.html"><span>🧑‍💼</span>SACCO Staff</a>
-        <a class="btn" href="/matatu/owner-dashboard.html"><span>🚌</span>Matatu Owner</a>
-        <a class="btn" href="/auth/role-select.html"><span>🔐</span>Logins</a>
+        <a class="btn" href="/"><span>??</span>Home</a>
+        <a class="btn primary" href="/sacco/admin.html"><span>??</span>SACCO Admin</a>
+        <a class="btn" href="/sacco/sacco.html"><span>?????</span>SACCO Staff</a>
+        <a class="btn" href="/admin.html"><span>??</span>Matatu Owner</a>
+        <a class="btn" href="/auth/role-select.html"><span>??</span>Logins</a>
       </nav>
 
       <div class="spacer"></div>
@@ -63,33 +63,33 @@
 
   <!-- Hero -->
   <section class="hero">
-    <h1 class="title">Welcome 👋</h1>
+    <h1 class="title">Welcome ??</h1>
     <p class="muted">Choose your workspace below. The admin token you save here is used by the SACCO Admin dashboard only.</p>
   </section>
 
   <!-- Tiles -->
   <main class="grid">
-    <a class="card" href="/sacco/admin-dashboard.html">
-      <div class="ico">🏢</div>
+    <a class="card" href="/sacco/admin.html">
+      <div class="ico">??</div>
       <div><strong>SACCO Admin</strong><div class="muted">SACCOs, Matatus, USSD pool, fees</div></div>
-      <span class="go">→</span>
+      <span class="go">?</span>
     </a>
 
-    <a class="card" href="/sacco/staff-dashboard.html">
-      <div class="ico">🧑‍💼</div>
+    <a class="card" href="/sacco/sacco.html">
+      <div class="ico">?????</div>
       <div><strong>SACCO Staff</strong><div class="muted">Daily operations & support</div></div>
-      <span class="go">→</span>
+      <span class="go">?</span>
     </a>
 
-    <a class="card" href="/matatu/owner-dashboard.html">
-      <div class="ico">🚌</div>
+    <a class="card" href="/admin.html">
+      <div class="ico">??</div>
       <div><strong>Matatu Owner</strong><div class="muted">Trips, repayments, summaries</div></div>
-      <span class="go">→</span>
+      <span class="go">?</span>
     </a>
   </main>
 
   <footer>
-    © <span id="yr"></span> TekeTeke Transport
+    � <span id="yr"></span> TekeTeke Transport
   </footer>
 
   <script>
@@ -98,7 +98,7 @@
     $('#adm_token').value = localStorage.getItem('tt_admin_token') || '';
     $('#save_token').onclick = () => {
       localStorage.setItem('tt_admin_token', $('#adm_token').value.trim());
-      const b = $('#save_token'); const old = b.textContent; b.textContent = 'Saved ✓';
+      const b = $('#save_token'); const old = b.textContent; b.textContent = 'Saved ?';
       setTimeout(()=> b.textContent = old, 900);
     };
     document.getElementById('yr').textContent = new Date().getFullYear();

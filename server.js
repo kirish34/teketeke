@@ -1400,6 +1400,19 @@ app.get('/', (_req, res) => {
   res.type('text').send('TekeTeke backend is running.');
 });
 
+// --- static page aliases (old filenames → current)
+const pageAliases = {
+  '/sacco-admin-dashboard.html': '/sacco/admin.html',
+  '/sacco/staff-dashboard.html': '/sacco/sacco.html',
+  '/sacco-admin-dashboard.htm': '/sacco/admin.html',
+  '/sacco-staff-dashboard.htm': '/sacco/sacco.html',
+  '/matatu-owner-dashboard.html': '/admin.html',
+  '/auth/role-select.htm': '/auth/role-select.html',
+};
+for (const [from, to] of Object.entries(pageAliases)) {
+  app.get(from, (req, res) => res.redirect(308, to));
+}
+
 // =======================
 // 404 & error handler
 // =======================
