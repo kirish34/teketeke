@@ -389,6 +389,8 @@ app.get('/sacco/sacco.html', (_req, res) => sendPublic(res, path.join('sacco', '
 app.get('/matatu/owner.html', (_req, res) => sendPublic(res, path.join('matatu', 'owner.html')));
 app.get('/conductor/console.html', (_req, res) => sendPublic(res, path.join('conductor', 'console.html')));
 app.get('/auth/role-select.html', (_req, res) => sendPublic(res, path.join('auth', 'role-select.html')));
+// Lightweight aliases for login screen
+app.get(['/login', '/auth/login'], (_req, res) => res.redirect(308, '/auth/login.html'));
 
 // =======================
 // Auth & Roles
