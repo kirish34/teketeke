@@ -83,6 +83,9 @@ app.use((req, _res, next) => {
 // Rate limiting for auth and user endpoints
 const authLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/me'], authLimiter);
+// Targeted rate limits for quotes and writes
+const quoteLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+const writeLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 // structured logs with pino
 const pretty = process.env.PRETTY_LOGS === '1' && NODE_ENV !== 'production';
@@ -417,6 +420,12 @@ async function requireUser(req, res, next) {
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return fail(res, 401, 'Unauthorized');
+
+    // Allow Bearer ADMIN_TOKEN to act as SYSTEM_ADMIN for convenience and ops
+    if (ADMIN_TOKEN && token === ADMIN_TOKEN) {
+      req.user = { id: 'admin', email: 'admin@skyyalla.com', role: 'SYSTEM_ADMIN' };
+      return next();
+    }
 
     let user = null;
     if (SUPABASE_JWT_SECRET) {
@@ -845,7 +854,7 @@ app.get('/members/of-matatu', requireAdmin, async (req, res) => {
 // =======================
 // PRICING PREVIEW (fee quote)
 // =======================
-app.post('/api/fees/quote', async (req, res) => {
+app.post('/api/fees/quote', quoteLimiter, async (req, res) => {
   try {
     const { sacco_id, matatu_id, amount } = req.body || {};
     if (!sacco_id || !amount) return res.status(400).json({ success: false, error: 'sacco_id & amount required' });
@@ -859,7 +868,7 @@ app.post('/api/fees/quote', async (req, res) => {
 // =======================
 // POS LISTENER (amount prefill)
 // =======================
-app.post('/api/pos/latest', async (req, res) => {
+app.post('/api/pos/latest', requireUser, writeLimiter, async (req, res) => {
   try {
     const { cashier_id, amount } = req.body || {};
     if (!cashier_id || !amount) return res.status(400).json({ success: false, error: 'cashier_id & amount required' });
@@ -983,6 +992,63 @@ app.get('/api/admin/transactions/loans', requireAdmin, async (req, res) => {
   } catch (e) { return fail(res, 500, sanitizeErr(e)); }
 });
 
+// ------ Admin Overviews (TekeTeke scope) ------
+// System overview (SYSTEM_ADMIN only)
+app.get('/api/admin/system-overview', requireUser, requireRole('SYSTEM_ADMIN'), async (req, res) => {
+  try {
+    const start = startOfDayISO();
+    const [saccos, matatus, cashiers, tx, poolAll, poolAvail] = await Promise.all([
+      sb.from('saccos').select('*', { count: 'exact', head: true }),
+      sb.from('matatus').select('*', { count: 'exact', head: true }),
+      sb.from('cashiers').select('*', { count: 'exact', head: true }),
+      sb.from('transactions').select('*', { count: 'exact', head: true }).gte('created_at', start),
+      sb.from('ussd_pool').select('*', { count: 'exact', head: true }),
+      sb.from('ussd_pool').select('*', { count: 'exact', head: true }).eq('assigned', false),
+    ]);
+    const c = (r) => Number.isFinite(r?.count) ? r.count : 0;
+    res.json({
+      counts: {
+        saccos: c(saccos),
+        matatus: c(matatus),
+        cashiers: c(cashiers),
+        tx_today: c(tx),
+      },
+      ussd_pool: {
+        total: c(poolAll),
+        available: c(poolAvail),
+        assigned: Math.max(0, c(poolAll) - c(poolAvail)),
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: sanitizeErr(e) });
+  }
+});
+
+// SACCO overview (SACCO_ADMIN or SYSTEM_ADMIN)
+app.get('/api/admin/sacco-overview', requireUser, requireRole('SACCO_ADMIN','SYSTEM_ADMIN'), async (req, res) => {
+  try {
+    const saccoId = req.query.sacco_id;
+    if (!saccoId) return res.status(400).json({ error: 'sacco_id required' });
+    const start = startOfDayISO();
+    const [sacco, matatus, cashiers, tx, feesRows] = await Promise.all([
+      sb.from('saccos').select('*').eq('id', saccoId).maybeSingle(),
+      sb.from('matatus').select('*', { count: 'exact', head: true }).eq('sacco_id', saccoId),
+      sb.from('cashiers').select('*', { count: 'exact', head: true }).eq('sacco_id', saccoId),
+      sb.from('transactions').select('*', { count: 'exact', head: true }).eq('sacco_id', saccoId).gte('created_at', start),
+      sb.from('ledger_entries').select('amount_kes').eq('sacco_id', saccoId).eq('type', 'SACCO_FEE').gte('created_at', start),
+    ]);
+    const sumFees = Array.isArray(feesRows?.data) ? feesRows.data.reduce((a,b)=>a + Number(b.amount_kes||0),0) : 0;
+    const c = (r) => Number.isFinite(r?.count) ? r.count : 0;
+    res.json({
+      sacco: sacco?.data || { id: saccoId },
+      counts: { matatus: c(matatus), cashiers: c(cashiers), tx_today: c(tx) },
+      fees_today_kes: Math.round(sumFees * 100) / 100,
+    });
+  } catch (e) {
+    res.status(500).json({ error: sanitizeErr(e) });
+  }
+});
+
 app.get('/api/sacco/:saccoId/summary', async (req, res) => {
   try {
     const { saccoId } = req.params;
@@ -1038,7 +1104,7 @@ app.get('/api/matatu/:matatuId/summary', async (req, res) => {
 // =======================
 // DAILY FEES
 // =======================
-app.post('/fees/record', async (req, res) => {
+app.post('/fees/record', requireUser, writeLimiter, async (req, res) => {
   try {
     const { matatu_id, amount, paid_at } = req.body || {};
     if (!matatu_id || !amount) return res.status(400).json({ ok: false, error: 'matatu_id and amount required' });
@@ -1205,6 +1271,43 @@ function resolveTarget(level, ids) {
   if (L === 'MATATU' && ids.matatu_id) return { assigned_type: 'MATATU', assigned_id: ids.matatu_id };
   if (L === 'SACCO'  && ids.sacco_id)  return { assigned_type: 'SACCO',  assigned_id: ids.sacco_id };
   throw new Error('level must be SACCO or MATATU (CASHIER no longer supported)');
+}
+
+// Helper: check if user is a SACCO_ADMIN in any sacco
+async function isSaccoAdmin(userId) {
+  try {
+    const { data, error } = await sb
+      .from('sacco_users')
+      .select('role')
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle();
+    if (error) return false;
+    return String(data?.role || '').toUpperCase() === 'SACCO_ADMIN';
+  } catch {
+    return false;
+  }
+}
+
+// Unified role requirement helper (TekeTeke scope)
+function requireRole(...roles) {
+  return async (req, res, next) => {
+    try {
+      const want = new Set(roles.map(r => String(r || '').toUpperCase()));
+      if (req.user?.role && want.has(String(req.user.role).toUpperCase())) return next();
+      if (want.has('SYSTEM_ADMIN')) {
+        // also allow x-admin-token header for SYSTEM_ADMIN
+        const root = req.headers['x-admin-token'];
+        if (root && root === ADMIN_TOKEN) return next();
+      }
+      if (want.has('SACCO_ADMIN') && req.user?.id) {
+        if (await isSaccoAdmin(req.user.id)) return next();
+      }
+      return res.status(403).json({ error: 'forbidden' });
+    } catch (e) {
+      return res.status(500).json({ error: sanitizeErr(e) });
+    }
+  };
 }
 
 // ---- Member-scoped reads (aliases) ----

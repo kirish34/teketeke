@@ -197,6 +197,16 @@ scripts/project-doctor.sh
 
 On Windows PowerShell, set env vars with `$env:APP_URL="..."` etc, then run via WSL or Git Bash.
 
+## Two Roles Only (TekeTeke)
+
+This deployment operates with two roles: `SYSTEM_ADMIN` and `SACCO_ADMIN`.
+- SYSTEM_ADMIN: use `ADMIN_TOKEN` as a Bearer token for admin-only endpoints (or x-admin-token for legacy admin routes).
+- SACCO_ADMIN: requires a Supabase user linked in `sacco_users` with role `SACCO_ADMIN`.
+
+Ensure in Vercel → Environment Variables:
+- `SUPABASE_JWT_SECRET` is set (enables local JWT verification).
+- `APP_URL` and `API_URL` include your production hostname.
+
 ### 5) Docs CSP (env)
 
 To allow extra script/style hosts for Swagger/Redoc without code changes, set in Vercel env:

@@ -105,7 +105,14 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
   echo "   • Admin /api/me with ADMIN_TOKEN…"
   code=$(curl -sk -o /dev/null -w "%{http_code}" "${API_URL}/api/me" -H "Authorization: Bearer ${ADMIN_TOKEN}")
   echo "     → ${code}"
+  echo "   • Admin /api/admin/system-overview…"
+  curl -sk -o /dev/null -w "%{http_code}\n" "${API_URL}/api/admin/system-overview" -H "Authorization: Bearer ${ADMIN_TOKEN}"
 fi
+echo "🧪 SACCO overview (supply sacco_id):"
+echo "   curl -s \"${API_URL}/api/admin/sacco-overview?sacco_id=<ID>\" -H \"Authorization: Bearer <TOKEN>\" | jq"
+echo "🛡️  Secured writes should fail without token:"
+echo "   curl -i ${API_URL}/api/pos/latest -X POST"
+echo "   curl -i ${API_URL}/fees/record -X POST"
 
 # ---------- 10) CSP exceptions for docs ----------
 echo "📚 Swagger/Redoc CSP sanity:"
@@ -114,4 +121,3 @@ curl -skI "${API_URL}/redoc" | awk '/content-security-policy/i'
 
 # ---------- 11) Report ----------
 echo "✅ Doctor run complete. Check the statuses above."
-

@@ -407,6 +407,94 @@ paths:
         "401":
           description: Unauthorized
 
+  /api/admin/system-overview:
+    get:
+      tags: [Admin]
+      summary: System overview (SYSTEM_ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts:
+                    type: object
+                    properties:
+                      saccos: { type: integer }
+                      matatus: { type: integer }
+                      cashiers: { type: integer }
+                      tx_today: { type: integer }
+                  ussd_pool:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      assigned: { type: integer }
+                      available: { type: integer }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+
+  /api/admin/sacco-overview:
+    get:
+      tags: [Admin]
+      summary: SACCO overview (SACCO_ADMIN or SYSTEM_ADMIN)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: sacco_id
+          schema: { type: string }
+          required: true
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sacco: { $ref: "#/components/schemas/Sacco" }
+                  counts:
+                    type: object
+                    properties:
+                      matatus: { type: integer }
+                      cashiers: { type: integer }
+                      tx_today: { type: integer }
+                  fees_today_kes: { type: number }
+        "400": { description: sacco_id required }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+
+  /api/fees/quote:
+    post:
+      tags: [Transactions]
+      summary: Fee quote
+      responses:
+        "200": { description: OK }
+
+  /api/pos/latest:
+    post:
+      tags: [Transactions]
+      summary: Update latest POS amount (secured)
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /fees/record:
+    post:
+      tags: [Transactions]
+      summary: Record fee (secured)
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
   /api/my-roles:
     get:
       tags: [Auth]
