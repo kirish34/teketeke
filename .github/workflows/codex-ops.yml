@@ -29,7 +29,7 @@ env:
   APEX: teketeke.app
   WWW: www.teketeke.app
   # allow-list of GH usernames permitted to trigger via issue comment
-  ALLOWED_ACTORS: "your-github-username,another-collaborator"
+  ALLOWED_ACTORS: "kirish34"
 
 jobs:
   run:
@@ -134,4 +134,3 @@ jobs:
           for p in /ping /__version /__healthz /openapi.json /docs /redoc; do chk "$base$p" 200; done
           for p in / /ping /docs; do chk "$www$p" 308; done
           echo "HSTS:"; curl -sI "$base" | awk 'BEGIN{IGNORECASE=1}/^strict-transport-security:/{print}'
-
