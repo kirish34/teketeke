@@ -37,12 +37,13 @@ const _envState = getEnv();\nif (!_envState.ok) {\n  console.warn('[ENV] Missing
   }
 })().catch(() => { /* ignore */ });
 
-// ---- Supabase clients ----
-let sb = null;\nlet sbAdmin = null;\ntry {\n  if (SUPABASE_URL && SUPABASE_ANON_KEY) {\n    sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });\n  }\n  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE) {\n    sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { persistSession: false } });\n  }\n} catch (e) {\n  console.warn('[Supabase] client init skipped due to env:', e && e.message);\n}\n
-
-// ---- App setup ----
-const app = express();
-app.use(compression());
+let _supabaseCreateClient = null;
+async function _importSupabase() {
+  if (_supabaseCreateClient) return _supabaseCreateClient;
+  const mod = await import('@supabase/supabase-js');
+  _supabaseCreateClient = mod.createClient;
+  return _supabaseCreateClient;
+}app.use(compression());
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
   // Disable global CSP; route-specific CSP is applied for docs only
@@ -310,19 +311,11 @@ function isAdminReq(req) {
   return !!(ADMIN_TOKEN && (token === ADMIN_TOKEN || legacy === ADMIN_TOKEN));
 }
 
-function getSbFor(req) {
-  try {
-    if (isAdminReq(req) && sbAdmin) return sbAdmin;
-    const auth = (req.headers.authorization || '').trim();
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    if (token) {
-      return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { persistSession: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
-    }
-  } catch {}
-  return sb;
+
+async function getSbService() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return null;
+  const createClient = await _importSupabase();
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { persistSession: false } });
 }
 
 function parseRange(q) {
@@ -1562,3 +1555,7 @@ app.get('/__healthz', (_req, res) => {
   const hasDbSvc  = !!(state.values.SUPABASE_URL && state.values.SUPABASE_SERVICE_ROLE);
   res.json({ ok: state.ok, missing: state.missing, has_db: hasDbAnon, has_db_admin: hasDbSvc });
 });
+
+
+
+

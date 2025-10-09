@@ -1,4 +1,4 @@
-{
+﻿{
     "name":  "teketeke",
     "version":  "1.0.0",
     "license":  "MIT",
@@ -33,5 +33,8 @@
     "devDependencies":  {
                             "cross-env":  "^10.1.0",
                             "pino-pretty":  "^11.2.2"
-                        }
+                        },
+    "engines":  {
+                    "node":  "\u003e=18"
+                }
 }
