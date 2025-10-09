@@ -8,7 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const pinoHttp = require('pino-http');
 const jwt = require('jsonwebtoken');
-const { createClient } = require('@supabase/supabase-js');\nconst { getEnv } = require('./env');
+const { getEnv } = require('./env');
 const YAML = require('yaml');
 const swaggerUi = require('swagger-ui-express');
 const helmet = require('helmet');
@@ -1555,6 +1555,7 @@ app.get('/__healthz', (_req, res) => {
   const hasDbSvc  = !!(state.values.SUPABASE_URL && state.values.SUPABASE_SERVICE_ROLE);
   res.json({ ok: state.ok, missing: state.missing, has_db: hasDbAnon, has_db_admin: hasDbSvc });
 });
+
 
 
 
