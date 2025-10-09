@@ -1,5 +1,6 @@
 openapi: 3.0.3
-info:\n  license:\n    name: MIT\n    url: https://opensource.org/licenses/MIT\n  title: TekeTeke Backend API
+info:
+  title: TekeTeke Backend API
   version: 1.0.0
   description: |
     Backend for SACCOS, Matatus, USSD pool, auth, and dashboards.
@@ -7,21 +8,32 @@ info:\n  license:\n    name: MIT\n    url: https://opensource.org/licenses/MIT\n
       - Success envelopes: { success: true, data: ... } or { success: true, items: [...], count: N }
       - Errors: { success: false, error: "message" }
       - Some legacy/public endpoints return plain arrays; UIs already handle r.data || r.items || r.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
 servers:
-  - url: https://api.teketeke.example
+  - url: https://teketeke.app
     description: Production
   - url: http://localhost:5001
     description: Local dev
 
 tags:
   - name: Health
+    description: Liveness/readiness endpoints.
   - name: Config
+    description: Public configuration endpoints.
   - name: Auth
+    description: Authentication and session endpoints.
   - name: Admin
+    description: System/SACCO admin endpoints (require admin token).
   - name: USSD Pool
+    description: Admin operations for USSD code pool.
   - name: Transactions
+    description: Quotes, fees and ledger endpoints.
   - name: Public
+    description: Open read-only lookup endpoints.
   - name: Member
+    description: Authenticated member/SACCO endpoints (JWT).
 
 security: []
 
@@ -83,16 +95,7 @@ components:
       properties:
         success: { type: boolean, enum: [false] }
         error: { type: string }
-      required: [success, error]
-
-    ErrorResponse:
-      type: object
-      properties:
-        error: { type: string }
-        message: { type: string }
-        request_id: { type: string }
-
-    User:
+      required: [success, error]\n    User:
       type: object
       properties:
         id: { type: string }
@@ -188,6 +191,11 @@ components:
         allocated_at: { type: string, format: date-time, nullable: true }
 
   responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     UnauthorizedError:
       description: Missing or invalid credentials
       content:
@@ -206,6 +214,11 @@ components:
             properties:
               success: { type: boolean, example: false }
               error: { type: string, example: Forbidden (not a SACCO member) }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
 paths:
   # -------------------------
@@ -215,20 +228,24 @@ paths:
     get:
       tags: [Health]
       summary: Liveness
+      operationId: getHealth
       responses:
         "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "5XX": { description: Server error }
 
   /__health:
     get:
       tags: [Health]
       summary: Extended health
+      operationId: getHealthExtended
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "5XX":
           description: Error
           content:
@@ -239,6 +256,7 @@ paths:
     get:
       tags: [Config]
       summary: Public Supabase config
+      operationId: getConfigJson
       responses:
         "200":
           description: Config
@@ -249,6 +267,7 @@ paths:
                 properties:
                   SUPABASE_URL: { type: string }
                   SUPABASE_ANON_KEY: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
 
   # -------------------------
   # Auth
@@ -400,6 +419,7 @@ paths:
     get:
       tags: [Auth]
       summary: Who am I
+      operationId: getMe
       security:
         - bearerAuth: []
       responses:
@@ -490,6 +510,7 @@ paths:
     post:
       tags: [Transactions]
       summary: Fee quote
+      operationId: postFeesQuote
       responses:
         "200": { description: OK }
 
@@ -497,6 +518,7 @@ paths:
     post:
       tags: [Transactions]
       summary: Upsert last POS amount for a cashier (RLS-scoped)
+      operationId: postPosLatest
       security:
         - bearerAuth: []
       requestBody:
@@ -661,6 +683,7 @@ paths:
       tags: [Admin]
       summary: List saccos
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - $ref: "#/components/parameters/Q"
@@ -685,6 +708,7 @@ paths:
       tags: [Admin]
       summary: Create sacco
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -713,6 +737,7 @@ paths:
       tags: [Admin]
       summary: Update sacco
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -738,6 +763,7 @@ paths:
       tags: [Admin]
       summary: Delete sacco
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: path
@@ -758,6 +784,7 @@ paths:
       tags: [Admin]
       summary: List matatus
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: query
@@ -779,6 +806,7 @@ paths:
       tags: [Admin]
       summary: Create matatu
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -809,6 +837,7 @@ paths:
       tags: [Admin]
       summary: Update matatu
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -834,6 +863,7 @@ paths:
       tags: [Admin]
       summary: Delete matatu
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: path
@@ -854,6 +884,7 @@ paths:
       tags: [Admin]
       summary: Get ruleset
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: path
@@ -881,6 +912,7 @@ paths:
       tags: [Admin]
       summary: Upsert ruleset
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -912,6 +944,7 @@ paths:
       tags: [USSD Pool]
       summary: List available USSD bases
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: query
@@ -937,6 +970,7 @@ paths:
       tags: [USSD Pool]
       summary: List allocated USSD
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - in: query
@@ -962,6 +996,7 @@ paths:
       tags: [USSD Pool]
       summary: Assign next available code to SACCO or MATATU
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -998,6 +1033,7 @@ paths:
       tags: [USSD Pool]
       summary: Bind a specific code to SACCO or MATATU
       security:
+        - bearerAuth: []
         - adminToken: []
       requestBody:
         required: true
@@ -1034,6 +1070,7 @@ paths:
       tags: [Transactions]
       summary: SACCO fees ledger rows (range)
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - $ref: "#/components/parameters/From"
@@ -1057,6 +1094,7 @@ paths:
       tags: [Transactions]
       summary: Loan repayments ledger rows (range)
       security:
+        - bearerAuth: []
         - adminToken: []
       parameters:
         - $ref: "#/components/parameters/From"
@@ -1301,6 +1339,7 @@ paths:
     get:
       tags: [Ops]
       summary: Prometheus plaintext metrics (admin token required)
+      operationId: getMetricsProm
       security:
         - bearerAuth: []
         - adminToken: []
