@@ -79,9 +79,93 @@ jobs:
           path: health.txt
           retention-days: 7
 
+      - name: Open or update failure issue
+        if: ${{ steps.run.outputs.had_failures == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          BASE: ${{ inputs.base }}
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const base = process.env.BASE;
+            const label = 'stack-health';
+            const title = `Stack Health FAIL: ${base}`;
+            const bodyText = fs.readFileSync('health.txt', 'utf8');
+
+            // Ensure label exists
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner, repo, name: label, color: 'd73a4a',
+                description: 'Automated health-check failures'
+              });
+            }
+
+            // Find existing open issue with same title
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: label, per_page: 100
+            });
+            const existing = issues.find(i => i.title === title);
+
+            const commentBody = [
+              `New failing run for **${base}** at ${new Date().toISOString()}:`,
+              '',
+              '```txt',
+              bodyText.length > 60000 ? (bodyText.slice(0, 60000) + '\n[truncated]') : bodyText,
+              '```'
+            ].join('\n');
+
+            if (existing) {
+              core.info(`Updating existing issue #${existing.number}`);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body: commentBody
+              });
+            } else {
+              core.info('Creating new failure issue');
+              await github.rest.issues.create({
+                owner, repo, title, labels: [label],
+                body: [
+                  `Health check failed for **${base}**.`,
+                  '',
+                  commentBody
+                ].join('\n')
+              });
+            }
+
+      - name: Close failure issue if passing
+        if: ${{ steps.run.outputs.had_failures == 'false' }}
+        uses: actions/github-script@v7
+        env:
+          BASE: ${{ inputs.base }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const base = process.env.BASE;
+            const label = 'stack-health';
+            const title = `Stack Health FAIL: ${base}`;
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: label, per_page: 100
+            });
+            for (const is of issues) {
+              if (is.title === title) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: is.number,
+                  body: `Passing run for **${base}** at ${new Date().toISOString()}. Closing. ✅`
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: is.number, state: 'closed'
+                });
+                core.info(`Closed issue #${is.number}`);
+              }
+            }
+
       - name: Enforce strict mode
         if: ${{ inputs.strict && steps.run.outputs.had_failures == 'true' }}
         run: |
           echo "FAIL lines detected and strict=true — failing the job."
           exit 1
-
