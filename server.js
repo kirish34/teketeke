@@ -13,6 +13,7 @@ const YAML = require('yaml');
 const swaggerUi = require('swagger-ui-express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const compression = require('compression');
 const { randomUUID } = require('crypto');
 
 // ---- Env ----
@@ -51,6 +52,7 @@ const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { pers
 
 // ---- App setup ----
 const app = express();
+app.use(compression());
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
   // Disable global CSP; route-specific CSP is applied for docs only
@@ -67,8 +69,8 @@ app.use(cors({
     return cb(new Error('Not allowed by CORS: ' + origin));
   },
   credentials: true,
-  exposedHeaders: ['X-Request-ID'],
-  methods: ['GET','POST','DELETE','OPTIONS'],
+  exposedHeaders: ['X-Request-ID','RateLimit-Limit','RateLimit-Remaining','RateLimit-Reset'],
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','x-admin-token']
 }));
 app.use(express.json({ limit: '1mb' }));
@@ -290,8 +292,15 @@ app.get('/redoc', docsCSP, (_req, res) => {
 </html>`);
 });
 
-// ---- Static dashboards ----
-app.use(express.static(path.join(__dirname, 'public')));
+// ---- Static dashboards (cache-control) ----
+app.use('/public', (req, res, next) => {
+  if (/\.html?$/.test(req.path)) {
+    res.setHeader('Cache-Control', 'no-cache');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+  next();
+}, express.static(path.join(__dirname, 'public')));
 // --- legacy paths -> new files ---
 app.get('/choose.html', (_req, res) => res.redirect(302, '/auth/role-select.html'));
 app.get('/admin/auth/login.html', (_req, res) => res.redirect(302, '/auth/login.html'));
@@ -1486,7 +1495,12 @@ app.use('/api/admin', adminLimiter);
 app.use((err, req, res, next) => {
   try { console.error('[ERR]', req.id || '-', err && err.stack ? err.stack : err); } catch {}
   if (res.headersSent) return;
-  res.status(500).json({ success: false, error: 'Internal server error', request_id: req.id || '' });
+  const code = err.status || err.statusCode || 500;
+  res.status(code).json({
+    error: err.code || 'internal_error',
+    message: err.message || 'Internal Server Error',
+    request_id: req.id || ''
+  });
 });
 
 
@@ -1535,4 +1549,9 @@ app.get('/metrics', async (req, res) => {
     } catch {}
   }
   res.json(base);
+});
+
+// 404 JSON (after routes)
+app.use((req, res) => {
+  res.status(404).json({ error: 'not_found', path: req.originalUrl, request_id: req.id || '' });
 });
