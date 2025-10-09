@@ -1,0 +1,113 @@
+name: E2E (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to test (checked out)"
+        required: true
+        default: "main"
+      base:
+        description: "Base URL to probe (deploy or alias)"
+        required: true
+      strict:
+        description: "Fail job if any FAIL lines appear"
+        type: boolean
+        default: true
+      seed:
+        description: "Run seeder before tests"
+        type: boolean
+        default: false
+      email_on_failure:
+        description: "Send email if job fails"
+        type: boolean
+        default: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: e2e-${{ inputs.branch }}
+      cancel-in-progress: false
+
+    env:
+      BASE: ${{ inputs.base }}
+      ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+
+    steps:
+      - name: Checkout ${{ inputs.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Optional seed
+        if: inputs.seed == true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: |
+          echo "Seeding (if script exists)…"
+          if [ -f scripts/seed.sh ]; then bash scripts/seed.sh; else echo "No seed script found"; fi
+
+      - name: Run health-check
+        id: health
+        run: |
+          bash scripts/health-check.sh | tee health.txt
+          if [ "${{ inputs.strict }}" = "true" ] && grep -q "FAIL" health.txt; then
+            echo "::error::FAIL lines found in health.txt"
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-health
+          path: health.txt
+          if-no-files-found: warn
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### E2E (Manual)"
+            echo "- **Branch:** \`${{ inputs.branch }}\`"
+            echo "- **Base:** \`${{ inputs.base }}\`"
+            echo "- **Strict:** \`${{ inputs.strict }}\`"
+            echo
+            echo "**Status:** \`${{ job.status }}\`"
+            echo
+            echo '```text'
+            sed -n '1,120p' health.txt || echo "no health.txt"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Email on failure
+        if: failure() && inputs.email_on_failure == true
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.zoho.com
+          server_port: 587
+          username: ${{ secrets.ZOHO_EMAIL }}
+          password: ${{ secrets.ZOHO_APP_PASSWORD }}
+          subject: "E2E FAILED on ${{ inputs.branch }} — ${{ github.repository }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.ZOHO_EMAIL }}
+          content_type: text/plain
+          body: |
+            Repo: ${{ github.repository }}
+            Branch: ${{ inputs.branch }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            --- health.txt (first 120 lines) ---
+            $(head -n 120 health.txt 2>/dev/null || echo "no health.txt")
+

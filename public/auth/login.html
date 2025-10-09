@@ -1,96 +1,128 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>TekeTeke — Login</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f7fafc;margin:0;display:grid;place-items:center;height:100vh}
-    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 20px rgba(0,0,0,.06);padding:24px;min-width:320px;max-width:360px}
-    h1{margin:0 0 12px;color:#111827;font-size:20px}
-    .row{display:flex;flex-direction:column;margin:8px 0}
-    input{padding:10px;border:1px solid #d1d5db;border-radius:8px}
-    .btn{margin-top:8px;width:100%;padding:10px;border:none;border-radius:8px;background:#1976d2;color:#fff;cursor:pointer}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
-    .muted{color:#6b7280;font-size:12px;margin-top:4px}
-    .err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px;margin-top:8px;display:none}
-    .ok{background:#dcfce7;color:#064e3b;border:1px solid #86efac;border-radius:8px;padding:8px;margin-top:8px;display:none}
-    .link{display:block;text-align:center;margin-top:10px;color:#1976d2;text-decoration:none}
+    :root{ --bg1:#0ea5e9; --bg2:#0369a1; --fg:#fff; --muted:rgba(255,255,255,.92); --card1:#38bdf8; --card2:#0284c7; --border:rgba(255,255,255,.28) }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0;font:17px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;background:linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 100%);color:var(--fg);-webkit-font-smoothing:antialiased}
+    .wrap{max-width:480px;margin:0 auto;padding:28px}
+    h1{font-size:28px;margin:0 0 16px;font-weight:900;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+    .panel{background:linear-gradient(180deg,var(--card1) 0%,var(--card2) 100%);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+    label{display:block;font-weight:800;margin:10px 0 6px}
+    input{width:100%;padding:12px 14px;border-radius:12px;border:2px solid var(--border);background:rgba(255,255,255,.10);color:#fff;outline:none}
+    input:focus{border-color:#fff; box-shadow:0 0 0 3px rgba(255,255,255,.15)}
+    button{width:100%;margin-top:14px;padding:12px 16px;border-radius:12px;border:2px solid var(--border);background:rgba(255,255,255,.14);color:#fff;font-weight:800;font-size:16px;cursor:pointer}
+    button:hover{background:rgba(255,255,255,.18)}
+    .muted{color:var(--muted);font-weight:600}
+    .err{margin-top:10px;color:#fff;font-weight:800;display:none}
+    .tip{font-size:12px;margin-top:10px}
+    a{color:#fff}
   </style>
-  <script src="/js/api.js"></script>
-  <script src="/js/nav.js"></script>
-  <script>
-    // If already logged or a root token exists, route away quickly
-    document.addEventListener('DOMContentLoaded', () => {
-      try {
-        const existingAuth = localStorage.getItem('auth_token') || localStorage.getItem('TT_TOKEN');
-        const hasRoot = localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token');
-        if (existingAuth || hasRoot) {
-          routeAfterLogin({ saccos: [] });
-        }
-      } catch {}
-    });
-  </script>
-  </head>
+</head>
 <body>
-  <div class="card">
-    <h1>Sign in to TekeTeke</h1>
-    <div class="row">
-      <label>Email</label>
-      <input id="email" type="email" placeholder="name@example.com" autocomplete="email" />
+  <div class="wrap">
+    <h1>Sign in</h1>
+    <div class="panel">
+      <form id="loginForm">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+
+        <button type="submit">Continue</button>
+        <div id="msg" class="err" role="alert"></div>
+        <div class="tip muted">After sign-in, we’ll send you to your dashboard based on your role.</div>
+      </form>
     </div>
-    <div class="row">
-      <label>Password</label>
-      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-    </div>
-    <button id="loginBtn" class="btn">Sign in</button>
-    <div id="msgErr" class="err"></div>
-    <div id="msgOk" class="ok"></div>
-    <a class="link" href="/auth/role-select.html">Choose role</a>
+    <p class="tip muted">Need to pick a dashboard manually? <a href="/auth/role-select.html">Role Selection</a></p>
   </div>
 
   <script>
-    (function(){
-      const $ = (id)=>document.getElementById(id);
-      const show = (el, txt)=>{ el.textContent = txt; el.style.display = 'block'; };
-      const hide = (el)=> el.style.display = 'none';
+    const routeForRoles = (roles, hasSystemAdminClaim) => {
+      if (hasSystemAdminClaim) return '/admin.html';
+      const set = new Set((roles||[]).map(r => (r||'').toUpperCase()));
+      if (set.has('SYSTEM_ADMIN')) return '/admin.html';
+      if (set.has('SACCO_ADMIN')) return '/sacco/admin.html';
+      if (set.has('SACCO_STAFF')) return '/sacco/sacco.html';
+      if (set.has('MATATU_OWNER')) return '/matatu/owner.html';
+      if (set.has('CONDUCTOR')) return '/conductor/console.html';
+      return '/auth/role-select.html';
+    };
 
-      $('loginBtn').onclick = async ()=>{
-        const btn = $('loginBtn');
-        const errEl = $('msgErr'), okEl = $('msgOk');
-        hide(errEl); hide(okEl);
-        btn.disabled = true;
-
-        try{
-          const email = $('email').value.trim();
-          const password = $('password').value.trim();
-          if (!email || !password) { show(errEl, 'Email and password required'); btn.disabled=false; return; }
-
-          const res = await TT.jpost('/api/auth/login', { email, password });
-          if (res && res.access_token) {
-            TT.setAuth(res.access_token);
-          }
-          show(okEl, 'Signed in. Redirecting…');
-          routeAfterLogin(res || {});
-        }catch(e){
-          show(errEl, e.message || 'Login failed');
-        }finally{
-          btn.disabled = false;
-        }
-      };
-
-      window.routeAfterLogin = function routeAfterLogin(session){
-        const hasRoot = !!TT.getRoot();
-        if (hasRoot) { location.href = '/admin.html'; return; }
-        const saccos = Array.isArray(session.saccos) ? session.saccos : [];
-        const isSaccoAdmin = saccos.some(r => {
-          const role = String(r.role || '').toUpperCase();
-          return role === 'SACCO_ADMIN' || role === 'ADMIN';
-        });
-        if (isSaccoAdmin) { location.href = '/sacco/admin.html'; return; }
-        location.href = '/auth/role-select.html';
+    async function fetchMyRoles(token){
+      try{
+        const r = await fetch('/api/my-roles', { headers: { 'Authorization': 'Bearer ' + token }});
+        if(!r.ok) throw new Error('roles fetch failed');
+        const j = await r.json();
+        // Our API returns { success, data: { saccos: [...], matatus: [...] } }
+        const data = j.data || j || {};
+        const saccos = Array.isArray(data.saccos) ? data.saccos : [];
+        const matatus = Array.isArray(data.matatus) ? data.matatus : [];
+        const roles = [];
+        if (saccos.some(r => String(r.role||'').toUpperCase() === 'SACCO_ADMIN')) roles.push('SACCO_ADMIN');
+        if (!roles.length && saccos.length) roles.push('SACCO_STAFF');
+        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'owner')) roles.push('MATATU_OWNER');
+        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'conductor')) roles.push('CONDUCTOR');
+        const claims = j.claims || {};
+        const hasAdmin = !!(claims.system_admin || claims.is_admin || roles.includes('SYSTEM_ADMIN'));
+        return { roles, hasAdmin };
+      }catch{
+        return { roles: [], hasAdmin: false };
       }
-    })();
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('msg');
+      msg.style.display = 'none'; msg.textContent = '';
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        msg.textContent = 'Email and password required';
+        msg.style.display = 'block';
+        return;
+      }
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        if (!r.ok) {
+          const t = await r.text().catch(()=> '');
+          throw new Error(`login failed ${r.status}: ${t || r.statusText}`);
+        }
+        const data = await r.json();
+        const token = data.token || data.access_token || '';
+        if (!token) throw new Error('missing token in response');
+
+        // Persist token
+        localStorage.setItem('auth_token', token);
+
+        // If root token exists, system admin wins
+        const hasRoot = !!(localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token'));
+        if (hasRoot) { location.href = '/admin.html'; return; }
+
+        const { roles, hasAdmin } = await fetchMyRoles(token);
+        if (roles.length > 1) {
+          try { sessionStorage.setItem('last_roles', JSON.stringify(roles)); } catch {}
+          location.href = '/auth/role-select.html';
+          return;
+        }
+        const dest = routeForRoles(roles, hasAdmin);
+        location.href = dest;
+      } catch (err) {
+        console.error(err);
+        msg.textContent = (err && err.message) ? err.message : 'Login failed';
+        msg.style.display = 'block';
+      }
+    });
   </script>
 </body>
 </html>
+
