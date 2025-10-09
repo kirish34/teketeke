@@ -6,6 +6,9 @@ Backend (Node/Express + Supabase) and static dashboards for a matatu/SACCO platf
 
 [![Perf (k6) - smoke](https://github.com/kirish34/teketeke/actions/workflows/perf.yml/badge.svg?branch=main)](https://github.com/kirish34/teketeke/actions/workflows/perf.yml)
 [![E2E](https://github.com/kirish34/teketeke/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/kirish34/teketeke/actions/workflows/e2e.yml)
+[![OpenAPI Validate](https://github.com/kirish34/teketeke/actions/workflows/openapi-validate.yml/badge.svg?branch=main)](https://github.com/kirish34/teketeke/actions/workflows/openapi-validate.yml)
+[![Stack Health](https://github.com/kirish34/teketeke/actions/workflows/stack-health.yml/badge.svg?branch=main)](https://github.com/kirish34/teketeke/actions/workflows/stack-health.yml)
+[![Stack Readiness](https://github.com/kirish34/teketeke/actions/workflows/stack-readiness.yml/badge.svg?branch=main)](https://github.com/kirish34/teketeke/actions/workflows/stack-readiness.yml)
 
 ## Deploy
 
@@ -14,8 +17,8 @@ Backend (Node/Express + Supabase) and static dashboards for a matatu/SACCO platf
   ?repository-url=https%3A%2F%2Fgithub.com%2Fkirish34%2Fteketeke
   &project-name=teketeke
   &repository-name=teketeke
-  &env=SUPABASE_URL,SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE,SUPABASE_JWT_SECRET,ADMIN_TOKEN,CORS_ORIGIN
-  &envDescription=Set%20Supabase%20keys%20and%20ADMIN_TOKEN.%20CORS_ORIGIN%20should%20include%20your%20Vercel%20URL%20(e.g.%20https%3A%2F%2Fteketeke-yourid.vercel.app)
+  &env=SUPABASE_URL,SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE,SUPABASE_JWT_SECRET,ADMIN_TOKEN,APP_URL,API_URL,CORS_ORIGIN,DOCS_CSP_EXTRA
+  &envDescription=Set%20Supabase%20keys%2C%20ADMIN_TOKEN%2C%20APP_URL%2C%20API_URL.%20CORS_ORIGIN%20should%20include%20your%20Vercel%20URL(s)%20and%20dashboard%20origin(s).
 )
 
 After deploy, set Environment Variables in Vercel:
@@ -171,7 +174,7 @@ location.reload();
 
 ### 4) CORS tip (backend)
 
-If you see CORS issues, set on the backend:
+If you see CORS issues, set on the backend (include APP_URL and API_URL too):
 
 ```
 CORS_ORIGIN=https://teketeke-3wmdki35z-teketeke.vercel.app
