@@ -20,5 +20,8 @@ jobs:
       - name: Lint openapi.yaml with Redocly
         run: npx -y @redocly/cli@latest lint openapi.yaml
 
+      - name: Validate with swagger-cli (OpenAPI 3)
+        run: npx -y swagger-cli@4 validate openapi.yaml
+
       - name: Bundle openapi.yaml (sanity)
         run: npx -y @redocly/cli@latest bundle openapi.yaml --output ./openapi.bundle.json

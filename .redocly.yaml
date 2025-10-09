@@ -1,0 +1,19 @@
+extends:
+  - recommended
+
+rules:
+  # Enforce clean paths and consistency
+  no-ambiguous-paths: error
+  path-not-include-query: error
+  no-path-trailing-slash: error
+  operation-summary: error
+  operation-operationId: error
+  operation-tags: warn
+  operation-tag-defined: error
+  no-unused-components: error
+  security-defined: warn
+  spec: error
+
+theme:
+  openapi:
+    htmlTemplate: true
