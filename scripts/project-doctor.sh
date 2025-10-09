@@ -123,6 +123,11 @@ echo "🧩 With a user token, writes may still be 403 if RLS denies (not SACCO_A
 echo "   curl -s ${API_URL}/fees/record -H \"Authorization: Bearer <TOKEN>\" -H 'Content-Type: application/json' -d '{\"matatu_id\":\"<UUID>\",\"amount\":100}' | jq"
 echo "🧰 SYSTEM_ADMIN (admin token) can write regardless of RLS:"
 echo "   curl -s ${API_URL}/fees/record -H \"Authorization: Bearer ${ADMIN_TOKEN}\" -H 'Content-Type: application/json' -d '{\"matatu_id\":\"<UUID>\",\"amount\":100}' | jq"
+echo "📈 Metrics:"
+echo " curl -s ${API_URL}/metrics | jq"
+echo " curl -s ${API_URL}/metrics -H \"Authorization: Bearer ${ADMIN_TOKEN}\" | jq"
+echo "🧾 Activity (auth required):"
+echo " curl -s ${API_URL}/api/sacco/activity?sacco_id=<UUID> -H \"Authorization: Bearer <TOKEN>\" | jq"
 
 # ---------- 10) CSP exceptions for docs ----------
 echo "📚 Swagger/Redoc CSP sanity:"

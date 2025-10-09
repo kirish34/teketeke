@@ -130,3 +130,13 @@ jobs:
         run: |
           npx --yes swagger-cli@4.0.4 validate openapi.yaml
 
+
+      - name: /metrics returns 200
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/metrics")
+          test "$code" = "200"
+
+      - name: /api/sacco/activity unauth -> 401/403
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/api/sacco/activity")
+          test "$code" = "401" -o "$code" = "403"

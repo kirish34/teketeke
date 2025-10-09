@@ -428,6 +428,11 @@ paths:
                       matatus: { type: integer }
                       cashiers: { type: integer }
                       tx_today: { type: integer }
+                  deltas:
+                    type: object
+                    properties:
+                      tx_delta: { type: integer }
+                      fees_delta: { type: number }
                   ussd_pool:
                     type: object
                     properties:
@@ -464,6 +469,11 @@ paths:
                       cashiers: { type: integer }
                       tx_today: { type: integer }
                   fees_today_kes: { type: number }
+                  deltas:
+                    type: object
+                    properties:
+                      tx_delta: { type: integer }
+                      fees_delta: { type: number }
         "400": { description: sacco_id required }
         "401": { description: Unauthorized }
         "403": { description: Forbidden }
@@ -496,6 +506,71 @@ paths:
         "401": { description: Unauthorized }
         "403": { description: Forbidden (RLS) }
         "422": { description: Validation error }
+
+  /metrics:
+    get:
+      tags: [Ops]
+      summary: Lightweight service metrics
+      description: Public JSON; with admin token adds db counts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { type: string }
+                  version: { type: string }
+                  time_iso: { type: string, format: date-time }
+                  uptime_s: { type: integer }
+                  db:
+                    type: object
+                    nullable: true
+                    properties:
+                      saccos: { type: integer }
+                      matatus: { type: integer }
+                      tx_today: { type: integer }
+
+  /api/sacco/activity:
+    get:
+      tags: [Sacco]
+      summary: Recent sacco activity (RLS-scoped)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: sacco_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string, description: ISO timestamp for keyset paging }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string, enum: [TX, FEE] }
+                        id: { type: string }
+                        sacco_id: { type: string, format: uuid }
+                        created_at: { type: string, format: date-time }
+                        amount_kes: { type: number }
+                        status: { type: string, nullable: true }
+                        type: { type: string, nullable: true }
+                  next_cursor: { type: string, nullable: true }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden (RLS) }
 
   /fees/record:
     post:

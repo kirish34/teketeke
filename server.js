@@ -1,4 +1,4 @@
-// server.js — TekeTeke backend (dashboards + auth + USSD pool + fees/reports)
+﻿// server.js â€” TekeTeke backend (dashboards + auth + USSD pool + fees/reports)
 require('dotenv').config();
 
 // ---- Core imports ----
@@ -197,7 +197,7 @@ app.use('/docs', docsCSP, swaggerUi.serve, swaggerUi.setup(openapiDoc, {
   customJs: '/docs-inject.js',
 }));
 
-// Swagger UI (light) — no token auto-injection
+// Swagger UI (light) â€” no token auto-injection
 app.use('/docs/light', docsCSP, swaggerUi.serve, swaggerUi.setup(openapiDoc, {
   explorer: true,
   swaggerOptions: {
@@ -245,14 +245,14 @@ app.get('/docs-inject.js', docsCSP, (_req, res) => {
   `);
 });
 
-// ---- Redoc (public) — zero dependency via CDN
+// ---- Redoc (public) â€” zero dependency via CDN
 app.get('/redoc', docsCSP, (_req, res) => {
   res.type('html').send(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>TekeTeke API — ReDoc</title>
+    <title>TekeTeke API â€” ReDoc</title>
     <style>
       body { margin:0; padding:0; }
       .topbar { position:fixed; top:0; left:0; right:0; height:48px; display:flex; align-items:center; gap:12px; padding:0 12px; background:#0b1020; color:#cfe3ff; z-index:10; }
@@ -437,7 +437,7 @@ const fail = (res, status, msg) => res.status(status).json({ success: false, err
 const sanitizeErr = (e)=>{
   const m = (e && e.message) ? String(e.message) : 'Unexpected error';
   // avoid leaking SQL/snippet content
-  return m.length > 300 ? m.slice(0,300) + '…' : m;
+  return m.length > 300 ? m.slice(0,300) + 'â€¦' : m;
 };
 
 async function requireUser(req, res, next) {
@@ -759,7 +759,7 @@ app.post('/api/admin/rulesets', requireAdmin, async (req, res) => {
   } catch (err) { return fail(res, 500, sanitizeErr(err)); }
 });
 
-// ✅ Confirm user email manually (dev helper)
+// âœ… Confirm user email manually (dev helper)
 app.post('/admin/users/confirm', requireAdmin, async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -811,7 +811,7 @@ app.get('/admin/users/lookup', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// ✅ Add /admin/saccos/add-user (accepts user_id OR email)
+// âœ… Add /admin/saccos/add-user (accepts user_id OR email)
 app.post('/admin/saccos/add-user', requireAdmin, async (req, res) => {
   try {
     const { sacco_id, role = 'STAFF', user_id, email } = req.body || {};
@@ -1035,13 +1035,28 @@ app.get('/api/admin/system-overview', requireUser, requireRole('SYSTEM_ADMIN'), 
       sb.from('ussd_pool').select('*', { count: 'exact', head: true }),
       sb.from('ussd_pool').select('*', { count: 'exact', head: true }).eq('assigned', false),
     ]);
-    
+    // deltas: today vs yesterday from helper views
+    const svc = sbAdmin || sb;
+    const [{ data: todayRows }, { data: ydayRows }] = await Promise.all([
+      svc.from('v_tx_today_by_sacco').select('tx_count, fees_sum'),
+      svc.from('v_tx_yesterday_by_sacco').select('tx_count, fees_sum'),
+    ]);
+    const sum = (arr, k) => (Array.isArray(arr) ? arr.reduce((a,b)=>a + Number(b?.[k]||0), 0) : 0);
+    const tx_today_total = sum(todayRows, 'tx_count');
+    const tx_yday_total  = sum(ydayRows,  'tx_count');
+    const fees_today     = sum(todayRows, 'fees_sum');
+    const fees_yday      = sum(ydayRows,  'fees_sum');
+
     res.json({
       counts: {
         saccos: getCount(saccos),
         matatus: getCount(matatus),
         cashiers: getCount(cashiers),
         tx_today: getCount(tx),
+      },
+      deltas: {
+        tx_delta: tx_today_total - tx_yday_total,
+        fees_delta: Number((fees_today - fees_yday).toFixed(2)),
       },
       ussd_pool: {
         total: getCount(poolAll),
@@ -1068,11 +1083,25 @@ app.get('/api/admin/sacco-overview', requireUser, requireRole('SACCO_ADMIN','SYS
       sb.from('ledger_entries').select('amount_kes').eq('sacco_id', saccoId).eq('type', 'SACCO_FEE').gte('created_at', start),
     ]);
     const sumFees = Array.isArray(feesRows?.data) ? feesRows.data.reduce((a,b)=>a + Number(b.amount_kes||0),0) : 0;
-    
+    // deltas for this sacco
+    const sbr = getSbFor(req);
+    const [{ data: td }, { data: yd }] = await Promise.all([
+      sbr.from('v_tx_today_by_sacco').select('tx_count, fees_sum').eq('sacco_id', saccoId),
+      sbr.from('v_tx_yesterday_by_sacco').select('tx_count, fees_sum').eq('sacco_id', saccoId),
+    ]);
+    const tx_td = Array.isArray(td)&&td[0] ? Number(td[0].tx_count||0) : 0;
+    const tx_yd = Array.isArray(yd)&&yd[0] ? Number(yd[0].tx_count||0) : 0;
+    const fees_td = Array.isArray(td)&&td[0] ? Number(td[0].fees_sum||0) : 0;
+    const fees_yd = Array.isArray(yd)&&yd[0] ? Number(yd[0].fees_sum||0) : 0;
+
     res.json({
       sacco: sacco?.data || { id: saccoId },
       counts: { matatus: getCount(matatus), cashiers: getCount(cashiers), tx_today: getCount(tx) },
       fees_today_kes: Math.round(sumFees * 100) / 100,
+      deltas: {
+        tx_delta: tx_td - tx_yd,
+        fees_delta: Number((fees_td - fees_yd).toFixed(2)),
+      }
     });
   } catch (e) {
     res.status(500).json({ error: sanitizeErr(e) });
@@ -1398,7 +1427,7 @@ app.get('/u/sacco/:saccoId/summary', requireUser, requireSaccoMember, async (req
   res.json({ range:{from,to}, totals:{ ...totals, NET_TO_OWNER: +(fare-savings-loan-saccofee).toFixed(2) } });
 });
 
-// Current user's sacco profile(s) — RLS-protected (Bearer required)
+// Current user's sacco profile(s) â€” RLS-protected (Bearer required)
 app.get('/api/sacco/profile', requireUser, async (req, res) => {
   try {
     const sbr = getSbFor(req);
@@ -1460,3 +1489,50 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: 'Internal server error', request_id: req.id || '' });
 });
 
+
+
+// Recent activity (transactions + ledger), RLS-scoped
+app.get('/api/sacco/activity', requireUser, async (req, res) => {
+  try {
+    const sbr = getSbFor(req);
+    const saccoId = req.query.sacco_id || null;
+    const limit = Math.min(Math.max(parseInt(req.query.limit||'20',10), 1), 100);
+    const cursor = req.query.cursor || null; // ISO timestamp keyset
+    let txq = sbr.from('transactions').select('id, sacco_id, created_at, fare_amount_kes, status').order('created_at', { ascending: false }).limit(limit);
+    let leq = sbr.from('ledger_entries').select('id, sacco_id, created_at, amount_kes, type').order('created_at', { ascending: false }).limit(limit);
+    if (saccoId) { txq = txq.eq('sacco_id', saccoId); leq = leq.eq('sacco_id', saccoId); }
+    if (cursor)  { txq = txq.lt('created_at', cursor); leq = leq.lt('created_at', cursor); }
+    const [tx, le] = await Promise.all([txq, leq]);
+    if (tx.error) return res.status(500).json({ error: String(tx.error.message||tx.error) });
+    if (le.error) return res.status(500).json({ error: String(le.error.message||le.error) });
+    const events = [
+      ...(tx.data||[]).map(r => ({ kind:'TX', id:r.id, sacco_id:r.sacco_id, created_at:r.created_at, amount_kes:r.fare_amount_kes, status:r.status })),
+      ...(le.data||[]).map(r => ({ kind:'FEE', id:r.id, sacco_id:r.sacco_id, created_at:r.created_at, amount_kes:r.amount_kes, type:r.type }))
+    ].sort((a,b)=> (a.created_at > b.created_at ? -1 : 1)).slice(0, limit);
+    const next_cursor = events.length ? events[events.length-1].created_at : null;
+    res.json({ events, next_cursor });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message||e) });
+  }
+});
+
+// Lightweight metrics (public); admin token adds db counts
+app.get('/metrics', async (req, res) => {
+  const base = {
+    service: 'teketeke',
+    version: (process.env.COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || 'dev'),
+    time_iso: new Date().toISOString(),
+    uptime_s: Math.floor(process.uptime())
+  };
+  if (isAdminReq(req) && sbAdmin) {
+    try {
+      const [saccos, matatus, tx] = await Promise.all([
+        sbAdmin.from('saccos').select('id', { count:'exact', head:true }),
+        sbAdmin.from('matatus').select('id', { count:'exact', head:true }),
+        sbAdmin.from('transactions').select('id', { count:'exact', head:true }).gte('created_at', startOfDayISO())
+      ]);
+      base.db = { saccos: getCount(saccos), matatus: getCount(matatus), tx_today: getCount(tx) };
+    } catch {}
+  }
+  res.json(base);
+});
