@@ -1,20 +1,33 @@
-{"version":2,
- "builds":[{"src":"server.js","use":"@vercel/node"}],
- "rewrites":[
-   {"source":"/public/(.*)","destination":"/public/$1"},
-   {"source":"/(.*)","destination":"/server.js"}
- ],
- "headers":[
-   {"source":"/(.*)","headers":[
-     {"key":"X-Frame-Options","value":"DENY"},
-     {"key":"X-Content-Type-Options","value":"nosniff"},
-     {"key":"Referrer-Policy","value":"strict-origin-when-cross-origin"},
-     {"key":"Permissions-Policy","value":"geolocation=(), camera=(), microphone=()"},
-     {"key":"Cross-Origin-Opener-Policy","value":"same-origin"},
-     {"key":"Cross-Origin-Resource-Policy","value":"same-origin"},
-     {"key":"Strict-Transport-Security","value":"max-age=63072000; includeSubDomains; preload"}
-   ]}
- ],
- "installCommand":"npm ci",
- "devCommand":"node server.js",
- "env":{"DOCS_CSP_EXTRA":""}}
+{
+  "version": 2,
+  "builds": [{ "src": "server.js", "use": "@vercel/node" }],
+  "rewrites": [
+    { "source": "/public/(.*)", "destination": "/public/$1" },
+    { "source": "/(.*)", "destination": "/server.js" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "geolocation=(), camera=(), microphone=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.teketeke.app" }],
+      "destination": "https://teketeke.app/:path*",
+      "permanent": true
+    }
+  ],
+  "installCommand": "npm ci",
+  "devCommand": "node server.js",
+  "env": { "DOCS_CSP_EXTRA": "" }
+}
