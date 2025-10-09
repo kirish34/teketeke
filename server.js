@@ -1468,10 +1468,12 @@ app.get('/', (_req, res) => {
 });
 
 // ---- Start server ----
-app.listen(PORT, () => {
-  console.log(`[TekeTeke] Listening on :${PORT}`);
-  console.log('[ENV] URL:', !!SUPABASE_URL, 'ANON:', !!SUPABASE_ANON_KEY, 'SRV:', !!SUPABASE_SERVICE_ROLE);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`[TekeTeke] Listening on :${PORT}`);
+    console.log('[ENV] URL:', !!SUPABASE_URL, 'ANON:', !!SUPABASE_ANON_KEY, 'SRV:', !!SUPABASE_SERVICE_ROLE);
+  });
+}
 
 // ---- helpers
 function cryptoRandomId() {
@@ -1555,3 +1557,6 @@ app.get('/metrics', async (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ error: 'not_found', path: req.originalUrl, request_id: req.id || '' });
 });
+
+// Export app for Vercel @vercel/node
+module.exports = app;
