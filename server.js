@@ -126,31 +126,37 @@ if (NODE_ENV !== 'production') {
 }
 app.get('/openapi.json', (_req, res) => res.json(openapiDoc));
 
-// --- Relaxed CSP for documentation routes only ---
-// Allow extra script sources via DOCS_CSP_EXTRA (comma-separated origins)
-const docsCspExtra = (process.env.DOCS_CSP_EXTRA || '')
+// --- docs CSP (allow extra hosts via env) ---
+const extraCspHosts = (process.env.DOCS_CSP_EXTRA || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
-const docsCSP = helmet.contentSecurityPolicy({
-  useDefaults: true,
-  directives: {
-    defaultSrc: ["'self'"],
-    scriptSrc: [
-      "'self'",
-      "'unsafe-inline'",
-      "'unsafe-eval'",
-      "https://cdn.redoc.ly",
-      "https://unpkg.com",
-      "https://cdn.jsdelivr.net",
-      ...docsCspExtra,
-    ],
-    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-    imgSrc: ["'self'", "data:", "blob:"],
-    fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-    connectSrc: ["'self'"],
-  },
-});
+
+const docsCspDirectives = {
+  defaultSrc: ["'self'"],
+  // doc UIs need inline/eval; we keep this only for /docs & /redoc
+  scriptSrc: [
+    "'self'",
+    "'unsafe-inline'",
+    "'unsafe-eval'",
+    "cdn.redoc.ly",
+    "unpkg.com",
+    "cdn.jsdelivr.net",
+    ...extraCspHosts,
+  ],
+  styleSrc: ["'self'", "'unsafe-inline'", ...extraCspHosts],
+  imgSrc: ["'self'", "data:", "blob:"],
+  fontSrc: ["'self'", "data:"],
+  connectSrc: ["'self'", "https:", "http:"],
+};
+
+const docsCSP = helmet.contentSecurityPolicy({ directives: docsCspDirectives });
+
+// apply only to docs routes
+app.use('/docs', docsCSP);
+app.use('/docs/light', docsCSP);
+app.use('/docs-inject.js', docsCSP);
+app.use('/redoc', docsCSP);
 app.use('/docs', docsCSP, swaggerUi.serve, swaggerUi.setup(openapiDoc, {
   explorer: true,
   swaggerOptions: {

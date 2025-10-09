@@ -178,3 +178,13 @@ CORS_ORIGIN=https://teketeke-3wmdki35z-teketeke.vercel.app
 ```
 
 (Comma-separate if multiple origins), then redeploy backend.
+
+### 5) Docs CSP (env)
+
+To allow extra script/style hosts for Swagger/Redoc without code changes, set in Vercel env:
+
+```
+DOCS_CSP_EXTRA=cdn.skypack.dev,cdn.example.com
+```
+
+Comma-separated list of extra hosts allowed for `/docs` and `/redoc` scripts/styles.
