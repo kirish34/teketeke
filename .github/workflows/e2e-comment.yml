@@ -1,0 +1,207 @@
+name: E2E (Comment Trigger)
+
+# Usage (comment on an Issue or PR):
+#   /e2e base=https://<deploy-or-alias> [branch=<ref>] [strict=true|false] [seed=true|false] [email=false]
+#
+# Examples:
+#   /e2e base=https://teketeke.vercel.app
+#   /e2e base=https://teketeke.vercel.app branch=fix/dashboards-and-role-select strict=true seed=false
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  run-e2e:
+    if: startsWith(github.event.comment.body, '/e2e')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Authorize commenter
+        id: authz
+        run: |
+          echo "actor_association=${{ github.event.comment.author_association }}"
+          case "${{ github.event.comment.author_association }}" in
+            OWNER|MEMBER|COLLABORATOR) echo "ok" ;;
+            *) echo "::notice::Ignoring command from non-collaborator."; echo "SKIP=1" >> $GITHUB_ENV ;;
+          esac
+
+      - name: Early exit if unauthorized
+        if: env.SKIP == '1'
+        run: exit 0
+
+      - name: Parse command
+        id: parse
+        run: |
+          BODY='${{ github.event.comment.body }}'
+          # strip leading '/e2e' and normalize spaces
+          ARGS="$(echo "$BODY" | sed -E 's#^/e2e[[:space:]]*##')"
+          # defaults
+          BASE=""
+          BRANCH=""
+          STRICT="true"
+          SEED="false"
+          EMAIL="true"
+
+          for kv in $ARGS; do
+            case "$kv" in
+              base=*)   BASE="${kv#base=}" ;;
+              branch=*) BRANCH="${kv#branch=}" ;;
+              strict=*) STRICT="${kv#strict=}" ;;
+              seed=*)   SEED="${kv#seed=}" ;;
+              email=*)  EMAIL="${kv#email=}" ;;
+            esac
+          done
+
+          echo "COMMENT_BASE=$BASE"    >> $GITHUB_ENV
+          echo "COMMENT_BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "COMMENT_STRICT=$STRICT" >> $GITHUB_ENV
+          echo "COMMENT_SEED=$SEED"     >> $GITHUB_ENV
+          echo "COMMENT_EMAIL=$EMAIL"   >> $GITHUB_ENV
+
+      - name: Resolve PR head branch if missing
+        id: resolve-branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let branch = process.env.COMMENT_BRANCH || '';
+            if (!branch && context.payload.issue && context.payload.issue.pull_request) {
+              const prNum = context.issue.number;
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNum,
+              });
+              branch = pr.head.ref;
+            }
+            core.exportVariable('BRANCH', branch || 'main');
+
+      - name: Validate inputs
+        run: |
+          if [ -z "${COMMENT_BASE}" ]; then
+            echo "::error::Missing base=<url>. Example: /e2e base=https://teketeke.vercel.app"
+            echo "INPUTS_OK=0" >> $GITHUB_ENV
+          else
+            echo "INPUTS_OK=1" >> $GITHUB_ENV
+          fi
+
+      - name: Comment usage when missing base
+        if: env.INPUTS_OK != '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              `⚠️ Missing \`base=<url>\``,
+              ``,
+              `**Usage**`,
+              "`/e2e base=https://<deploy-or-alias> [branch=<ref>] [strict=true|false] [seed=true|false] [email=false]`",
+            ].join('\n');
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - name: Exit when invalid
+        if: env.INPUTS_OK != '1'
+        run: exit 0
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Optional seed
+        if: env.COMMENT_SEED == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: |
+          echo "Seeding (if script exists)…"
+          if [ -f scripts/seed.sh ]; then bash scripts/seed.sh; else echo "No scripts/seed.sh found"; fi
+
+      - name: Run health-check
+        id: health
+        env:
+          BASE: ${{ env.COMMENT_BASE }}
+          ADMIN_TOKEN: ${{ secrets.TEKETEKE_ADMIN_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          bash scripts/health-check.sh | tee artifacts/health.txt
+          if [ "${COMMENT_STRICT}" = "true" ] && grep -q "FAIL" artifacts/health.txt; then
+            echo "::error::FAIL lines found in health.txt"
+            echo "HEALTH_STATUS=fail" >> $GITHUB_ENV
+            exit 1
+          else
+            echo "HEALTH_STATUS=ok" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-health
+          path: artifacts/health.txt
+          if-no-files-found: warn
+
+      - name: Post results to thread
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const snippet = fs.existsSync('artifacts/health.txt')
+              ? fs.readFileSync('artifacts/health.txt','utf8').split('\n').slice(0,120).join('\n')
+              : 'no health.txt';
+            const status = process.env.HEALTH_STATUS === 'fail' ? '❌' : (process.env.HEALTH_STATUS === 'ok' ? '✅' : 'ℹ️');
+            const body = [
+              `### ${status} E2E for \`${process.env.COMMENT_BASE}\``,
+              `- Branch: \`${process.env.BRANCH}\``,
+              `- Strict: \`${process.env.COMMENT_STRICT}\`  Seed: \`${process.env.COMMENT_SEED}\``,
+              ``,
+              '```text',
+              snippet,
+              '```'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - name: Email on failure (Zoho)
+        if: failure() && env.COMMENT_EMAIL == 'true'
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.zoho.com
+          server_port: 587
+          username: ${{ secrets.ZOHO_EMAIL }}
+          password: ${{ secrets.ZOHO_APP_PASSWORD }}
+          subject: "E2E FAILED — ${{ github.repository }} (${{ env.BRANCH }})"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.ZOHO_EMAIL }}
+          content_type: text/plain
+          body: |
+            Repo: ${{ github.repository }}
+            Branch: ${{ env.BRANCH }}
+            Base: ${{ env.COMMENT_BASE }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            (health.txt attached as artifact 'e2e-health')
+
