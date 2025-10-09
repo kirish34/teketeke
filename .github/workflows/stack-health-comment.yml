@@ -1,0 +1,35 @@
+name: Stack Health (comment)
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  comment:
+    if: startsWith(github.event.comment.body, '/health ')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse inputs
+        run: |
+          BASE=$(echo "${{ github.event.comment.body }}" | awk '{print $2}')
+          STRICT=$(echo "${{ github.event.comment.body }}" | awk '{print $3}')
+          echo "BASE=$BASE" >> $GITHUB_ENV
+          echo "STRICT=$STRICT" >> $GITHUB_ENV
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y jq dnsutils
+      - name: Run health-check
+        env:
+          BASE: ${{ env.BASE }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          bash scripts/health-check.sh | tee health.txt
+          echo "### Health Report for $BASE" >> $GITHUB_STEP_SUMMARY
+          sed -n '1,999p' health.txt >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.STRICT }}" = "strict" ] && grep -q '^FAIL |' health.txt; then
+            echo "Strict mode: failing due to FAIL lines."; exit 1
+          fi
+

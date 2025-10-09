@@ -1,0 +1,87 @@
+name: Stack Health
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base URL to probe (deploy or alias)"
+        required: true
+        default: "https://teketeke-an8u1azlg-teketeke.vercel.app"
+      check_domain:
+        description: "Also check apex/www + HSTS?"
+        type: boolean
+        required: true
+        default: true
+      apex:
+        description: "Apex domain (if check_domain)"
+        required: false
+        default: "teketeke.app"
+      www:
+        description: "WWW domain (if check_domain)"
+        required: false
+        default: "www.teketeke.app"
+      strict:
+        description: "Fail the job if any FAIL lines appear"
+        type: boolean
+        required: true
+        default: false
+
+  schedule:
+    - cron: "20 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-health
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq dnsutils
+
+      - name: Run health-check
+        id: run
+        env:
+          BASE: ${{ inputs.base }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          APEX: ${{ inputs.check_domain && inputs.apex || '' }}
+          WWW: ${{ inputs.check_domain && inputs.www || '' }}
+        run: |
+          set -euo pipefail
+          echo "Probing: $BASE"
+          bash scripts/health-check.sh | tee health.txt
+          {
+            echo "### TekeTeke Health Report"
+            echo
+            echo "**Target:** $BASE"
+            echo
+            sed -n '1,999p' health.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '^FAIL |' health.txt; then
+            echo "had_failures=true" >> $GITHUB_OUTPUT
+          else
+            echo "had_failures=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report
+          path: health.txt
+          retention-days: 7
+
+      - name: Enforce strict mode
+        if: ${{ inputs.strict && steps.run.outputs.had_failures == 'true' }}
+        run: |
+          echo "FAIL lines detected and strict=true — failing the job."
+          exit 1
+
