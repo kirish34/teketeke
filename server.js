@@ -51,7 +51,9 @@ const sbAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { pers
 
 // ---- App setup ----
 const app = express();
-app.use(helmet());
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+}));
 const allowed = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
   origin: function (origin, cb) {
@@ -123,7 +125,33 @@ if (NODE_ENV !== 'production') {
   } catch {}
 }
 app.get('/openapi.json', (_req, res) => res.json(openapiDoc));
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
+
+// --- Relaxed CSP for documentation routes only ---
+// Allow extra script sources via DOCS_CSP_EXTRA (comma-separated origins)
+const docsCspExtra = (process.env.DOCS_CSP_EXTRA || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+const docsCSP = helmet.contentSecurityPolicy({
+  useDefaults: true,
+  directives: {
+    defaultSrc: ["'self'"],
+    scriptSrc: [
+      "'self'",
+      "'unsafe-inline'",
+      "'unsafe-eval'",
+      "https://cdn.redoc.ly",
+      "https://unpkg.com",
+      "https://cdn.jsdelivr.net",
+      ...docsCspExtra,
+    ],
+    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+    imgSrc: ["'self'", "data:", "blob:"],
+    fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+    connectSrc: ["'self'"],
+  },
+});
+app.use('/docs', docsCSP, swaggerUi.serve, swaggerUi.setup(openapiDoc, {
   explorer: true,
   swaggerOptions: {
     displayRequestDuration: true,
@@ -152,7 +180,7 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
 }));
 
 // Swagger UI (light) — no token auto-injection
-app.use('/docs/light', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
+app.use('/docs/light', docsCSP, swaggerUi.serve, swaggerUi.setup(openapiDoc, {
   explorer: true,
   swaggerOptions: {
     displayRequestDuration: true,
@@ -164,7 +192,7 @@ app.use('/docs/light', swaggerUi.serve, swaggerUi.setup(openapiDoc, {
 }));
 
 // Tiny UI injector for /docs to add a "Use tokens from browser" button
-app.get('/docs-inject.js', (_req, res) => {
+app.get('/docs-inject.js', docsCSP, (_req, res) => {
   res.type('application/javascript').send(`
     (function(){
       function addBtn(){
@@ -200,7 +228,7 @@ app.get('/docs-inject.js', (_req, res) => {
 });
 
 // ---- Redoc (public) — zero dependency via CDN
-app.get('/redoc', (_req, res) => {
+app.get('/redoc', docsCSP, (_req, res) => {
   res.type('html').send(`<!doctype html>
 <html lang="en">
   <head>
