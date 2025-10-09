@@ -1,0 +1,47 @@
+name: Promote alias after DNS
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_url:
+        description: "Vercel deployment URL"
+        required: true
+jobs:
+  alias:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y dnsutils
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm i -g vercel
+      - name: Wait for DNS
+        env:
+          APEX: teketeke.app
+          WWW: www.teketeke.app
+          MAX_WAIT: "1800"
+        run: |
+          set -euo pipefail
+          t=0; SLEEP=20
+          apex_ok(){ [ "$(dig +short A $APEX @8.8.8.8 | grep -c '^76\.76\.21\.21$')" -ge 1 ]; }
+          www_ok(){ c=$(dig +short CNAME $WWW @8.8.8.8); [ -n "$c" ] && echo "$c" | grep -qi vercel-dns.com || [ "$(dig +short A $WWW @8.8.8.8 | grep -c '^76\.76\.21\.21$')" -ge 1 ]; }
+          while ! apex_ok || ! www_ok; do
+            echo "waiting… t=$t"; sleep $SLEEP; t=$((t+SLEEP)); [ $t -ge $MAX_WAIT ] && exit 1
+          done
+      - name: Alias & smoke
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          vercel whoami
+          vercel link --yes
+          vercel domains add teketeke.app || true
+          vercel alias set "${{ inputs.deploy_url }}" teketeke.app
+          vercel alias set "${{ inputs.deploy_url }}" www.teketeke.app
+          for p in /ping /__version /__healthz /openapi.json /docs /redoc; do
+            curl -s -o /dev/null -w "%{http_code}\n" "https://teketeke.app$p" | grep -qx 200
+          done
+          curl -s -o /dev/null -w "%{http_code}\n" "https://www.teketeke.app/ping" | grep -qx 308
+
