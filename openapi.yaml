@@ -1,6 +1,5 @@
 openapi: 3.0.3
-info:
-  title: TekeTeke Backend API
+info:\n  license:\n    name: MIT\n    url: https://opensource.org/licenses/MIT\n  title: TekeTeke Backend API
   version: 1.0.0
   description: |
     Backend for SACCOS, Matatus, USSD pool, auth, and dashboards.
@@ -23,6 +22,8 @@ tags:
   - name: Transactions
   - name: Public
   - name: Member
+
+security: []
 
 components:
   securitySchemes:
@@ -69,18 +70,18 @@ components:
     SuccessEnvelope:
       type: object
       properties:
-        success: { type: boolean, const: true }
+        success: { type: boolean, enum: [true] }
         data: {}
     ItemsEnvelope:
       type: object
       properties:
-        success: { type: boolean, const: true }
+        success: { type: boolean, enum: [true] }
         items: { type: array, items: {} }
         count: { type: integer }
     ErrorEnvelope:
       type: object
       properties:
-        success: { type: boolean, const: false }
+        success: { type: boolean, enum: [false] }
         error: { type: string }
       required: [success, error]
 
@@ -1300,6 +1301,9 @@ paths:
     get:
       tags: [Ops]
       summary: Prometheus plaintext metrics (admin token required)
+      security:
+        - bearerAuth: []
+        - adminToken: []
       responses:
         "200": { description: OK }
         "401": { description: Unauthorized }
