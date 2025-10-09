@@ -1,4 +1,4 @@
-name: E2E (TekeTeke)
+﻿name: E2E (TekeTeke)
 
 on:
   push:
@@ -110,3 +110,13 @@ jobs:
       # - name: Stop local server
       #   if: always()
       #   run: kill -9 $(cat server.pid) || true
+
+      - name: Check system overview with admin token
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "$BASE_URL/api/admin/system-overview" -H "Authorization: Bearer $ADMIN_TOKEN")
+          test "$code" = "200"
+
+      - name: Secured write should 401 without token
+        run: |
+          code=$(curl -sk -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/pos/latest")
+          if [ "$code" != "401" ] && [ "$code" != "403" ]; then exit 1; fi

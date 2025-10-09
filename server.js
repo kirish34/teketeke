@@ -300,6 +300,8 @@ app.get('/admin/auth/login.html', (_req, res) => res.redirect(302, '/auth/login.
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
 const startOfDayISO = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
 const endOfDayISO   = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+// Count helper for Supabase count queries with head:true
+const getCount = (resp) => Number.isFinite(resp?.count) ? resp.count : 0;
 
 function parseRange(q) {
   if (q.from || q.to) {
@@ -1005,18 +1007,18 @@ app.get('/api/admin/system-overview', requireUser, requireRole('SYSTEM_ADMIN'), 
       sb.from('ussd_pool').select('*', { count: 'exact', head: true }),
       sb.from('ussd_pool').select('*', { count: 'exact', head: true }).eq('assigned', false),
     ]);
-    const c = (r) => Number.isFinite(r?.count) ? r.count : 0;
+    
     res.json({
       counts: {
-        saccos: c(saccos),
-        matatus: c(matatus),
-        cashiers: c(cashiers),
-        tx_today: c(tx),
+        saccos: getCount(saccos),
+        matatus: getCount(matatus),
+        cashiers: getCount(cashiers),
+        tx_today: getCount(tx),
       },
       ussd_pool: {
-        total: c(poolAll),
-        available: c(poolAvail),
-        assigned: Math.max(0, c(poolAll) - c(poolAvail)),
+        total: getCount(poolAll),
+        available: getCount(poolAvail),
+        assigned: Math.max(0, getCount(poolAll) - getCount(poolAvail)),
       }
     });
   } catch (e) {
@@ -1038,10 +1040,10 @@ app.get('/api/admin/sacco-overview', requireUser, requireRole('SACCO_ADMIN','SYS
       sb.from('ledger_entries').select('amount_kes').eq('sacco_id', saccoId).eq('type', 'SACCO_FEE').gte('created_at', start),
     ]);
     const sumFees = Array.isArray(feesRows?.data) ? feesRows.data.reduce((a,b)=>a + Number(b.amount_kes||0),0) : 0;
-    const c = (r) => Number.isFinite(r?.count) ? r.count : 0;
+    
     res.json({
       sacco: sacco?.data || { id: saccoId },
-      counts: { matatus: c(matatus), cashiers: c(cashiers), tx_today: c(tx) },
+      counts: { matatus: getCount(matatus), cashiers: getCount(cashiers), tx_today: getCount(tx) },
       fees_today_kes: Math.round(sumFees * 100) / 100,
     });
   } catch (e) {
@@ -1387,3 +1389,4 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return;
   res.status(500).json({ success: false, error: 'Internal server error', request_id: req.id || '' });
 });
+

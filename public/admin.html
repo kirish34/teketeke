@@ -90,6 +90,17 @@
     <div class="tab" data-panel="p_tools">Admin Tools</div><!-- NEW -->
   </div>
 
+  <!-- System Overview (lightweight) -->
+  <section class="panel active" id="p_overview" style="margin:10px 0;">
+    <div class="grid grid-3">
+      <div class="field"><label>Total SACCOs<div class="v" id="ov_saccos">-</div></label></div>
+      <div class="field"><label>Total Matatus<div class="v" id="ov_matatus">-</div></label></div>
+      <div class="field"><label>Cashiers<div class="v" id="ov_cashiers">-</div></label></div>
+      <div class="field"><label>Tx Today<div class="v" id="ov_tx">-</div></label></div>
+      <div class="field"><label>USSD Pool (avail/total)<div class="v" id="ov_pool">-</div></label></div>
+    </div>
+  </section>
+
   <!-- SACCOs -->
   <section id="p_saccos" class="panel active">
     <h3>Register SACCO</h3>
@@ -661,6 +672,25 @@
   }
   init();
 })();
+</script>
+<script>
+  // System overview loader (uses bearer token)
+  (async function loadOverview(){
+    try{
+      const t = (window.TT && TT.getAuth && TT.getAuth()) || localStorage.getItem('auth_token') || '';
+      if(!t) return;
+      const r = await fetch('/api/admin/system-overview', { headers: { Authorization: 'Bearer ' + t }});
+      if(!r.ok) return;
+      const d = await r.json();
+      const counts = d.counts||{}; const pool=d.ussd_pool||{};
+      const S = (id,v)=>{ var el=document.getElementById(id); if(el) el.textContent=String(v); };
+      S('ov_saccos', counts.saccos||0);
+      S('ov_matatus', counts.matatus||0);
+      S('ov_cashiers', counts.cashiers||0);
+      S('ov_tx', counts.tx_today||0);
+      S('ov_pool', (pool.available||0) + ' / ' + (pool.total||0));
+    }catch(e){ }
+  })();
 </script>
 <script>
   // Guards: require either user auth or root token; then allow root to bypass role checks
