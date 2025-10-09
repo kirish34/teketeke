@@ -120,3 +120,8 @@ jobs:
         run: |
           code=$(curl -sk -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/pos/latest")
           if [ "$code" != "401" ] && [ "$code" != "403" ]; then exit 1; fi
+
+      - name: /api/sacco/profile requires auth
+        run: |
+          code=
+          if [ "" != "401" ] && [ "" != "403" ]; then exit 1; fi

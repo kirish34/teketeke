@@ -105,9 +105,15 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
   echo "   • Admin /api/me with ADMIN_TOKEN…"
   code=$(curl -sk -o /dev/null -w "%{http_code}" "${API_URL}/api/me" -H "Authorization: Bearer ${ADMIN_TOKEN}")
   echo "     → ${code}"
-  echo "   • Admin /api/admin/system-overview…"
-  curl -sk -o /dev/null -w "%{http_code}\n" "${API_URL}/api/admin/system-overview" -H "Authorization: Bearer ${ADMIN_TOKEN}"
+echo "   • Admin /api/admin/system-overview…"
+curl -sk -o /dev/null -w "%{http_code}\n" "${API_URL}/api/admin/system-overview" -H "Authorization: Bearer ${ADMIN_TOKEN}"
 fi
+echo "👥 RLS test hint:"
+echo "  1) Login to get a user token:"
+echo "     curl -s ${API_URL}/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"you\",\"password\":\"pass\"}' | jq"
+echo "  2) With that token:"
+echo "     curl -s ${API_URL}/api/sacco/profile -H \"Authorization: Bearer <TOKEN>\" | jq"
+echo "     # SYSTEM_ADMIN can inspect any sacco: ?sacco_id=<UUID>"
 echo "🧪 SACCO overview (supply sacco_id):"
 echo "   curl -s \"${API_URL}/api/admin/sacco-overview?sacco_id=<ID>\" -H \"Authorization: Bearer <TOKEN>\" | jq"
 echo "🛡️  Secured writes should fail without token:"

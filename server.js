@@ -303,6 +303,29 @@ const endOfDayISO   = (d = new Date()) => new Date(d.getFullYear(), d.getMonth()
 // Count helper for Supabase count queries with head:true
 const getCount = (resp) => Number.isFinite(resp?.count) ? resp.count : 0;
 
+// ------- Request-scoped Supabase helpers (RLS awareness) -------
+function isAdminReq(req) {
+  const auth = (req.headers.authorization || '').trim();
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const legacy = req.headers['x-admin-token'];
+  return !!(ADMIN_TOKEN && (token === ADMIN_TOKEN || legacy === ADMIN_TOKEN));
+}
+
+function getSbFor(req) {
+  try {
+    if (isAdminReq(req) && sbAdmin) return sbAdmin;
+    const auth = (req.headers.authorization || '').trim();
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (token) {
+      return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false },
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      });
+    }
+  } catch {}
+  return sb;
+}
+
 function parseRange(q) {
   if (q.from || q.to) {
     const from = q.from ? new Date(q.from) : new Date();
@@ -1314,7 +1337,8 @@ function requireRole(...roles) {
 
 // ---- Member-scoped reads (aliases) ----
 app.get('/u/my-saccos', requireUser, async (req,res)=>{
-  const { data, error } = await sb
+  const sbr = getSbFor(req);
+  const { data, error } = await sbr
     .from('sacco_users').select('sacco_id, role, saccos(name,default_till)')
     .eq('user_id', req.user.id);
   if (error) return res.status(500).json({ error:error.message });
@@ -1323,7 +1347,8 @@ app.get('/u/my-saccos', requireUser, async (req,res)=>{
 
 app.get('/u/sacco/:saccoId/transactions', requireUser, requireSaccoMember, async (req,res)=>{
   const { saccoId } = req.params; const { status, limit=50 } = req.query;
-  let q = sb.from('transactions')
+  const sbr = getSbFor(req);
+  let q = sbr.from('transactions')
     .select('id,matatu_id,cashier_id,passenger_msisdn,fare_amount_kes,service_fee_kes,status,mpesa_receipt,created_at')
     .eq('sacco_id', saccoId)
     .order('created_at', { ascending:false })
@@ -1336,7 +1361,8 @@ app.get('/u/sacco/:saccoId/transactions', requireUser, requireSaccoMember, async
 
 app.get('/u/sacco/:saccoId/matatus', requireUser, requireSaccoMember, async (req,res)=>{
   const { saccoId } = req.params;
-  const { data, error } = await sb.from('matatus')
+  const sbr = getSbFor(req);
+  const { data, error } = await sbr.from('matatus')
     .select('id,number_plate,owner_name,owner_phone,vehicle_type,tlb_number,till_number,created_at')
     .eq('sacco_id', saccoId).order('created_at', { ascending:false });
   if (error) return res.status(500).json({ error:error.message });
@@ -1345,13 +1371,40 @@ app.get('/u/sacco/:saccoId/matatus', requireUser, requireSaccoMember, async (req
 
 app.get('/u/sacco/:saccoId/summary', requireUser, requireSaccoMember, async (req,res)=>{
   const { saccoId } = req.params; const { from, to } = parseRange(req.query);
-  const { data, error } = await sb.from('ledger_entries')
+  const sbr = getSbFor(req);
+  const { data, error } = await sbr.from('ledger_entries')
     .select('type,amount_kes')
     .eq('sacco_id', saccoId).gte('created_at', from).lt('created_at', to);
   if (error) return res.status(500).json({ error:error.message });
   const totals = (data||[]).reduce((a,r)=>{ a[r.type]=(a[r.type]||0)+Number(r.amount_kes); return a; },{});
   const fare=+totals.FARE||0, savings=+totals.SAVINGS||0, loan=+totals.LOAN_REPAY||0, saccofee=+totals.SACCO_FEE||0;
   res.json({ range:{from,to}, totals:{ ...totals, NET_TO_OWNER: +(fare-savings-loan-saccofee).toFixed(2) } });
+});
+
+// Current user's sacco profile(s) — RLS-protected (Bearer required)
+app.get('/api/sacco/profile', requireUser, async (req, res) => {
+  try {
+    const sbr = getSbFor(req);
+    const saccoId = isAdminReq(req) ? (req.query.sacco_id || null) : null;
+    let saccoRows;
+    if (saccoId) {
+      const { data, error } = await sbr
+        .from('saccos')
+        .select('id,name,contact_name,contact_phone,contact_email,default_till,created_at')
+        .eq('id', saccoId);
+      if (error) return res.status(500).json({ error: String(error.message || error) });
+      saccoRows = data || [];
+    } else {
+      const { data, error } = await sbr
+        .from('sacco_users')
+        .select('sacco_id, role, saccos!inner(id,name,contact_name,contact_phone,contact_email,default_till,created_at)');
+      if (error) return res.status(500).json({ error: String(error.message || error) });
+      saccoRows = (data || []).map(r => ({ role: r.role, ...r.saccos }));
+    }
+    return res.json({ saccos: saccoRows });
+  } catch (e) {
+    return res.status(500).json({ error: String(e.message || e) });
+  }
 });
 
 // ---- Default route (optional) ----
