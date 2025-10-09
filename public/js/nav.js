@@ -1,4 +1,4 @@
-// public/js/nav.js
+﻿// public/js/nav.js
 (function () {
   // Simple auth guards & nav injection
   // Expose minimal helpers on window when this script loads
@@ -37,15 +37,12 @@
   if (document.querySelector('nav.tt-nav')) return;
 
   const links = [
-    { href: '/',                      label: 'Home',           icon: '🏠' },
-    { href: '/admin.html',            label: 'My Admin',       icon: '👑' },
-    { href: '/sacco/sacco.html',      label: 'SACCO Admin',    icon: '🏢' },
-    { href: '/sacco/staff.html',      label: 'SACCO Staff',    icon: '🧑‍💼' },
-    { href: '/matatu/owner.html',     label: 'Matatu Owner',   icon: '🚌' },
-    { href: '/matatu/conductor.html', label: 'Conductor',      icon: '🎫' },
-    { href: '/auth/role-select.html', label: 'Logins',         icon: '🔐' },
-    { href: '/auth/login.html',       label: 'Login',          icon: '🔐' },
-    { href: '/auth/logout.html',      label: 'Logout',         icon: '🚪' }
+    { href: '/',                      label: 'Home',           icon: 'ðŸ ' },
+    { href: '/admin.html',            label: 'My Admin',       icon: 'ðŸ‘‘' },
+    { href: '/sacco/sacco.html',      label: 'SACCO Admin',    icon: 'ðŸ¢' },
+    { href: '/auth/role-select.html', label: 'Logins',         icon: 'ðŸ”' },
+    { href: '/auth/login.html',       label: 'Login',          icon: 'ðŸ”' },
+    { href: '/auth/logout.html',      label: 'Logout',         icon: 'ðŸšª' }
   ];
 
   // Inject styles once
@@ -96,3 +93,4 @@
     });
   });
 })();
+

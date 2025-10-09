@@ -216,3 +216,21 @@ DOCS_CSP_EXTRA=cdn.skypack.dev,cdn.example.com
 ```
 
 Comma-separated list of extra hosts allowed for `/docs` and `/redoc` scripts/styles.
+
+## What’s Live Now
+
+| Area    | Status                                            |
+| ------- | ------------------------------------------------- |
+| Roles   | SYSTEM_ADMIN, SACCO_ADMIN                         |
+| Auth    | Supabase JWT + ADMIN_TOKEN                        |
+| RLS     | Reads + Writes enforced                           |
+| Admin   | system-overview, sacco-overview                   |
+| SACCO   | profile, activity                                 |
+| Metrics | `/metrics` JSON (public), `/metrics/prom` (admin) |
+| Docs    | `/openapi.json`, `/docs`, `/redoc`                |
+
+### Troubleshooting
+- 401: Missing/invalid token (use Authorization: Bearer <token> or ADMIN_TOKEN)
+- 403: RLS denied (user lacks SACCO_ADMIN for target sacco)
+- 422: Bad body (missing required fields or wrong types)
+- CORS: Ensure APP_URL/API_URL/CORS_ORIGIN include your domain
