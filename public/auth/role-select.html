@@ -113,37 +113,36 @@
       document.getElementById('envTag').textContent = tag;
     })();
   </script>
+  <script>
+    (function autoContinueIfLoggedIn(){
+      try{
+        const tok = localStorage.getItem('auth_token');
+        if (!tok) return;
+        fetch('/api/my-roles', { headers: { Authorization: 'Bearer ' + tok }})
+          .then(r => r.ok ? r.json() : null)
+          .then(j => {
+            if (!j) return;
+            const data = j.data || j || {};
+            const saccos = Array.isArray(data.saccos) ? data.saccos : [];
+            const matatus = Array.isArray(data.matatus) ? data.matatus : [];
+            const roles = [];
+            if (saccos.some(r => String(r.role||'').toUpperCase() === 'SACCO_ADMIN')) roles.push('SACCO_ADMIN');
+            if (!roles.length && saccos.length) roles.push('SACCO_STAFF');
+            if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'owner')) roles.push('MATATU_OWNER');
+            if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'conductor')) roles.push('CONDUCTOR');
+            if (roles.length > 1) {
+              try { sessionStorage.setItem('last_roles', JSON.stringify(roles)); } catch {}
+              return; // let user pick
+            }
+            const go = (path) => setTimeout(()=> location.href = path, 600);
+            if (roles.includes('SACCO_ADMIN')) return go('/sacco/admin.html');
+            if (roles.includes('SACCO_STAFF')) return go('/sacco/sacco.html');
+            if (roles.includes('MATATU_OWNER')) return go('/matatu/owner.html');
+            if (roles.includes('CONDUCTOR')) return go('/conductor/console.html');
+          })
+          .catch(()=>{});
+      }catch{}
+    })();
+  </script>
 </body>
 </html>
-
-<script>
-(function autoContinueIfLoggedIn(){
-  try{
-    const tok = localStorage.getItem('auth_token');
-    if (!tok) return;
-    fetch('/api/my-roles', { headers: { Authorization: 'Bearer ' + tok }})
-      .then(r => r.ok ? r.json() : null)
-      .then(j => {
-        if (!j) return;
-        const data = j.data || j || {};
-        const saccos = Array.isArray(data.saccos) ? data.saccos : [];
-        const matatus = Array.isArray(data.matatus) ? data.matatus : [];
-        const roles = [];
-        if (saccos.some(r => String(r.role||'').toUpperCase() === 'SACCO_ADMIN')) roles.push('SACCO_ADMIN');
-        if (!roles.length && saccos.length) roles.push('SACCO_STAFF');
-        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'owner')) roles.push('MATATU_OWNER');
-        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'conductor')) roles.push('CONDUCTOR');
-        if (roles.length > 1) {
-          try { sessionStorage.setItem('last_roles', JSON.stringify(roles)); } catch {}
-          return; // let user pick
-        }
-        const go = (path) => setTimeout(()=> location.href = path, 600);
-        if (roles.includes('SACCO_ADMIN')) return go('/sacco/admin.html');
-        if (roles.includes('SACCO_STAFF')) return go('/sacco/sacco.html');
-        if (roles.includes('MATATU_OWNER')) return go('/matatu/owner.html');
-        if (roles.includes('CONDUCTOR')) return go('/conductor/console.html');
-      })
-      .catch(()=>{});
-  }catch{}
-})();
-</script>
