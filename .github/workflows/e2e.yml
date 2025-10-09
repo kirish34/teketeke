@@ -44,10 +44,7 @@ jobs:
           # replace with your real seeder if different:
           node scripts/seed.js || echo "Seeder skipped/missing"
 
-      - name: Run E2E health script
-        run: |
-          mkdir -p artifacts
-          bash scripts/health-check.sh | tee artifacts/health.txt
+      - name: Run E2E health script (fail on FAIL lines)`n        env:`n          BASE: ${{ env.BASE_URL }}`n          ADMIN_TOKEN: ${{ env.ADMIN_TOKEN }}`n        run: |`n          mkdir -p artifacts`n          bash scripts/health-check.sh | tee artifacts/health.txt`n          if grep -q '^FAIL \|' artifacts/health.txt; then`n            echo "::error::FAIL lines found in health.txt"`n            exit 1`n          fi
 
       - name: Upload health artifact
         uses: actions/upload-artifact@v4
@@ -69,7 +66,7 @@ jobs:
           secure: true
           username: ${{ secrets.ZOHO_EMAIL }}
           password: ${{ secrets.ZOHO_APP_PASSWORD }}
-          subject: "❌ E2E failed: ${{ github.repository }} @ ${{ github.ref_name }}"
+          subject: "E2E failed: ${{ github.repository }} @ ${{ github.ref_name }}"
           from: ${{ secrets.ZOHO_EMAIL }}
           to: ${{ secrets.EMAIL_TO }}
           content_type: text/plain
