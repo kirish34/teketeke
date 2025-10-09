@@ -119,6 +119,10 @@ echo "   curl -s \"${API_URL}/api/admin/sacco-overview?sacco_id=<ID>\" -H \"Auth
 echo "🛡️  Secured writes should fail without token:"
 echo "   curl -i ${API_URL}/api/pos/latest -X POST"
 echo "   curl -i ${API_URL}/fees/record -X POST"
+echo "🧩 With a user token, writes may still be 403 if RLS denies (not SACCO_ADMIN for the sacco):"
+echo "   curl -s ${API_URL}/fees/record -H \"Authorization: Bearer <TOKEN>\" -H 'Content-Type: application/json' -d '{\"matatu_id\":\"<UUID>\",\"amount\":100}' | jq"
+echo "🧰 SYSTEM_ADMIN (admin token) can write regardless of RLS:"
+echo "   curl -s ${API_URL}/fees/record -H \"Authorization: Bearer ${ADMIN_TOKEN}\" -H 'Content-Type: application/json' -d '{\"matatu_id\":\"<UUID>\",\"amount\":100}' | jq"
 
 # ---------- 10) CSP exceptions for docs ----------
 echo "📚 Swagger/Redoc CSP sanity:"

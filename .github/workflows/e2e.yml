@@ -125,3 +125,8 @@ jobs:
         run: |
           code=
           if [ "" != "401" ] && [ "" != "403" ]; then exit 1; fi
+
+      - name: OpenAPI schema validates (swagger-cli)
+        run: |
+          npx --yes swagger-cli@4.0.4 validate openapi.yaml
+

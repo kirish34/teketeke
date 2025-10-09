@@ -895,12 +895,17 @@ app.post('/api/fees/quote', quoteLimiter, async (req, res) => {
 // =======================
 app.post('/api/pos/latest', requireUser, writeLimiter, async (req, res) => {
   try {
+    const sbr = getSbFor(req);
     const { cashier_id, amount } = req.body || {};
-    if (!cashier_id || !amount) return res.status(400).json({ success: false, error: 'cashier_id & amount required' });
-    const { error } = await sbAdmin.from('pos_latest').upsert({
-      cashier_id, amount_kes: round2(amount), updated_at: new Date().toISOString()
-    });
-    if (error) throw error;
+    if (!cashier_id || !Number.isFinite(Number(amount))) {
+      return res.status(422).json({ success: false, error: 'cashier_id and numeric amount required' });
+    }
+    const { error } = await sbr.from('pos_latest').upsert({
+      cashier_id,
+      amount_kes: round2(amount),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'cashier_id' });
+    if (error) return res.status(403).json({ success: false, error: error.message || String(error) });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
@@ -1131,12 +1136,13 @@ app.get('/api/matatu/:matatuId/summary', async (req, res) => {
 // =======================
 app.post('/fees/record', requireUser, writeLimiter, async (req, res) => {
   try {
+    const sbr = getSbFor(req);
     const { matatu_id, amount, paid_at } = req.body || {};
-    if (!matatu_id || !amount) return res.status(400).json({ ok: false, error: 'matatu_id and amount required' });
-    const payload = { matatu_id, amount };
+    if (!matatu_id || !Number.isFinite(Number(amount))) return res.status(422).json({ ok: false, error: 'matatu_id and numeric amount required' });
+    const payload = { matatu_id, amount: round2(amount) };
     if (paid_at) payload.paid_at = paid_at; // YYYY-MM-DD
-    const { data, error } = await sbAdmin.from('daily_fees').insert(payload).select().single();
-    if (error) throw error;
+    const { data, error } = await sbr.from('daily_fees').insert(payload).select().single();
+    if (error) return res.status(403).json({ ok: false, error: error.message || String(error) });
     res.json({ ok: true, data });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -1299,19 +1305,30 @@ function resolveTarget(level, ids) {
 }
 
 // Helper: check if user is a SACCO_ADMIN in any sacco
+// simple role cache for isSaccoAdmin
+const _roleCache = new Map(); // userId -> { val, at }
+const _ROLE_TTL_MS = 60 * 1000; // 60s
+const _ROLE_MAX = 500;
+function _getRoleCache(userId){ const o=_roleCache.get(userId); return (o && (Date.now()-o.at)<_ROLE_TTL_MS) ? o.val : undefined; }
+function _setRoleCache(userId,val){ if(_roleCache.size>_ROLE_MAX){ const k=_roleCache.keys().next().value; _roleCache.delete(k);} _roleCache.set(userId,{ val, at:Date.now()}); }
+
 async function isSaccoAdmin(userId) {
+  const memo = _getRoleCache(userId);
+  if (memo !== undefined) return memo;
+  let ok = false;
   try {
-    const { data, error } = await sb
+    const svc = sbAdmin || sb;
+    const { data } = await svc
       .from('sacco_users')
       .select('role')
       .eq('user_id', userId)
+      .eq('role', 'SACCO_ADMIN')
       .limit(1)
       .maybeSingle();
-    if (error) return false;
-    return String(data?.role || '').toUpperCase() === 'SACCO_ADMIN';
-  } catch {
-    return false;
-  }
+    ok = !!data;
+  } catch { ok = false; }
+  _setRoleCache(userId, ok);
+  return ok;
 }
 
 // Unified role requirement helper (TekeTeke scope)

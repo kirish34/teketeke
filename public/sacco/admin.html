@@ -30,10 +30,14 @@
 <body>
   <h2>SACCO Admin Dashboard</h2>
   <button id="logoutBtn" class="btn" style="position:fixed;top:12px;right:12px;">Logout</button>
+  <div id="saccoProfile" class="note" style="margin:8px 0"></div>
 
   <div class="bar">
     <label>SACCO
       <select id="saccoSelect"></select>
+    </label>
+    <label style="display:none">SACCO ID
+      <select id="sacco_id"></select>
     </label>
     <label>Date <input id="date" type="date" /></label>
     <button id="refresh" class="ghost">Refresh</button>
@@ -90,9 +94,23 @@
         sel.innerHTML = '';
         let items = [];
         if (hasAuth) {
-          const r = await jget('/u/my-saccos');
-          const arr = r.items || r.data || r || [];
-          items = arr.map(x=>({ id:x.sacco_id, name:x.name || x.sacco_name || x.sacco_id }));
+          // Prefer sacco profile (RLS-protected)
+          try {
+            const r = await fetch('/api/sacco/profile', { headers: { Authorization: 'Bearer ' + TT.getAuth() } });
+            if (r.ok) {
+              const d = await r.json();
+              const arr = d.saccos || [];
+              items = arr.map(s=>({ id:s.id, name:s.name, till:s.default_till, contact:`${s.contact_name||''} ${s.contact_phone||''}` }));
+              const hdr = $('saccoProfile');
+              if (arr.length) hdr.textContent = `${arr[0].name} — Till: ${arr[0].default_till||'-'} — Contact: ${arr[0].contact_name||'-'} ${arr[0].contact_phone||''}`;
+              const sel2 = $('sacco_id'); sel2.innerHTML=''; arr.forEach(s=>{ const o=document.createElement('option'); o.value=s.id; o.textContent=s.name; sel2.appendChild(o); });
+            }
+          } catch {}
+          if (!items.length) {
+            const r = await jget('/u/my-saccos');
+            const arr = r.items || r.data || r || [];
+            items = arr.map(x=>({ id:x.sacco_id, name:x.name || x.sacco_name || x.sacco_id }));
+          }
         } else if (hasRoot) {
           const r = await jget('/api/admin/saccos?limit=200');
           items = (r.items || r.data || r || []);
@@ -153,6 +171,7 @@
       }
 
       $('saccoSelect').onchange = reloadAll;
+      $('sacco_id').onchange = async ()=>{ await loadSaccoOverview(); };
       $('refresh').onclick = reloadAll;
       $('date').onchange = reloadAll;
 
@@ -165,6 +184,20 @@
         }catch(e){ $('status').textContent = e.message; }
       })();
     })();
+  </script>
+  <script>
+  async function loadSaccoOverview(){
+    try{
+      const t = (window.TT && TT.getAuth && TT.getAuth()) || localStorage.getItem('auth_token') || '';
+      const el = document.getElementById('sacco_id');
+      const sid = el && el.value ? el.value : (document.getElementById('saccoSelect').value || '');
+      if(!t || !sid) return;
+      const r = await fetch('/api/admin/sacco-overview?sacco_id='+encodeURIComponent(sid), { headers:{ Authorization: 'Bearer '+t }});
+      if(!r.ok) return;
+      const d = await r.json();
+      // You can render d.counts and d.fees_today_kes into existing UI as needed
+    }catch(e){ }
+  }
   </script>
 </body>
 </html>
