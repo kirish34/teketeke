@@ -84,6 +84,13 @@ components:
         error: { type: string }
       required: [success, error]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+        request_id: { type: string }
+
     User:
       type: object
       properties:
@@ -1297,11 +1304,4 @@ paths:
         "200": { description: OK }
         "401": { description: Unauthorized }
 
-components:
-  schemas:
-    ErrorResponse:
-      type: object
-      properties:
-        error: { type: string }
-        message: { type: string }
-        request_id: { type: string }
+ 
