@@ -42,86 +42,101 @@
   </div>
 
   <script>
-    const routeForRoles = (roles, hasSystemAdminClaim) => {
-      if (hasSystemAdminClaim) return '/admin.html';
-      const set = new Set((roles||[]).map(r => (r||'').toUpperCase()));
+    // Map roles to dashboards per spec
+    function routeForRoles(roles) {
+      const set = new Set((roles || []).map(r => String(r || '').toUpperCase()));
       if (set.has('SYSTEM_ADMIN')) return '/admin.html';
       if (set.has('SACCO_ADMIN')) return '/sacco/admin.html';
       if (set.has('SACCO_STAFF')) return '/sacco/sacco.html';
       if (set.has('MATATU_OWNER')) return '/matatu/owner.html';
       if (set.has('CONDUCTOR')) return '/conductor/console.html';
       return '/auth/role-select.html';
-    };
+    }
 
-    async function fetchMyRoles(token){
-      try{
-        const r = await fetch('/api/my-roles', { headers: { 'Authorization': 'Bearer ' + token }});
-        if(!r.ok) throw new Error('roles fetch failed');
+    async function fetchMyRoles(token) {
+      try {
+        const r = await fetch('/api/my-roles', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!r.ok) throw new Error('roles fetch failed');
         const j = await r.json();
-        // Our API returns { success, data: { saccos: [...], matatus: [...] } }
-        const data = j.data || j || {};
+        // Prefer explicit roles array if present
+        if (Array.isArray(j.roles)) return j.roles;
+        if (j && j.data && Array.isArray(j.data.roles)) return j.data.roles;
+        // Fallback: derive from possible shapes used elsewhere
+        const data = j.data || {};
         const saccos = Array.isArray(data.saccos) ? data.saccos : [];
         const matatus = Array.isArray(data.matatus) ? data.matatus : [];
-        const roles = [];
-        if (saccos.some(r => String(r.role||'').toUpperCase() === 'SACCO_ADMIN')) roles.push('SACCO_ADMIN');
-        if (!roles.length && saccos.length) roles.push('SACCO_STAFF');
-        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'owner')) roles.push('MATATU_OWNER');
-        if (matatus.some(r => String(r.member_role||'').toLowerCase() === 'conductor')) roles.push('CONDUCTOR');
-        const claims = j.claims || {};
-        const hasAdmin = !!(claims.system_admin || claims.is_admin || roles.includes('SYSTEM_ADMIN'));
-        return { roles, hasAdmin };
-      }catch{
-        return { roles: [], hasAdmin: false };
+        const out = [];
+        if (saccos.some(r => String(r.role||'').toUpperCase() === 'SACCO_ADMIN')) out.push('SACCO_ADMIN');
+        if (!out.length && saccos.length) out.push('SACCO_STAFF');
+        if (matatus.some(r => String(r.member_role||'').toUpperCase() === 'OWNER')) out.push('MATATU_OWNER');
+        if (matatus.some(r => String(r.member_role||'').toUpperCase() === 'CONDUCTOR')) out.push('CONDUCTOR');
+        return out;
+      } catch (_) {
+        return [];
       }
     }
 
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    // Ensure only one submit handler
+    const form = document.getElementById('loginForm');
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const msg = document.getElementById('msg');
-      msg.style.display = 'none'; msg.textContent = '';
+
+      const errEl = document.getElementById('err') || document.getElementById('msg');
+      if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
 
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
+      const btn = form.querySelector('button[type="submit"]');
+
       if (!email || !password) {
-        msg.textContent = 'Email and password required';
-        msg.style.display = 'block';
+        if (errEl) { errEl.textContent = 'Email and password required'; errEl.style.display = 'block'; }
         return;
       }
+      const setBusy = (v) => {
+        if (!btn) return;
+        btn.disabled = !!v;
+        btn.setAttribute('aria-busy', v ? 'true' : 'false');
+        btn.textContent = v ? 'Signing in…' : 'Continue';
+      };
       try {
+        setBusy(true);
         const r = await fetch('/api/auth/login', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
         });
         if (!r.ok) {
-          const t = await r.text().catch(()=> '');
+          const t = await r.text().catch(() => '');
           throw new Error(`login failed ${r.status}: ${t || r.statusText}`);
         }
         const data = await r.json();
-        const token = data.token || data.access_token || '';
+        const token = data.access_token || data.token || '';
         if (!token) throw new Error('missing token in response');
 
-        // Persist token
-        localStorage.setItem('auth_token', token);
+        // Persist token to required keys (and keep legacy for compatibility)
+        try {
+          localStorage.setItem('tt_root_token', token);
+          localStorage.setItem('tt_admin_token', token); // backward compatibility
+          localStorage.setItem('auth_token', token);     // for existing pages using Authorization
+        } catch {}
 
-        // If root token exists, system admin wins
-        const hasRoot = !!(localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token'));
-        if (hasRoot) { location.href = '/admin.html'; return; }
-
-        const { roles, hasAdmin } = await fetchMyRoles(token);
-        if (roles.length > 1) {
-          try { sessionStorage.setItem('last_roles', JSON.stringify(roles)); } catch {}
-          location.href = '/auth/role-select.html';
-          return;
+        const roles = await fetchMyRoles(token);
+        let dest = '/auth/role-select.html';
+        if (Array.isArray(roles)) {
+          if (roles.length === 1) dest = routeForRoles(roles);
+          else if (roles.length === 0) dest = '/auth/role-select.html';
+          else dest = '/auth/role-select.html';
         }
-        const dest = routeForRoles(roles, hasAdmin);
-        location.href = dest;
+
+        // Use replace to avoid back button returning to login
+        location.replace(dest);
       } catch (err) {
         console.error(err);
-        msg.textContent = (err && err.message) ? err.message : 'Login failed';
-        msg.style.display = 'block';
+        if (errEl) { errEl.textContent = (err && err.message) ? err.message : 'Login failed'; errEl.style.display = 'block'; }
+      } finally {
+        setBusy(false);
       }
-    });
+    }, { once: true });
   </script>
 </body>
 </html>

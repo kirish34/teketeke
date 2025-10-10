@@ -125,6 +125,12 @@
     del:  (p)        => j(p, { method: 'DELETE' }),
     jpost: (p, b)    => j(p, { method: 'POST', body: b }), // alias for convenience
 
+    // headers helper (for simple fetch calls)
+    authHeader: () => {
+      const t = getRoot() || getAuth();
+      return t ? { Authorization: `Bearer ${t}` } : {};
+    },
+
     // admin: saccos / matatus
     listSaccos:   (q)       => TT.get('/api/admin/saccos', q ? { q } : undefined),
     createSacco:  (b)       => TT.post('/api/admin/register-sacco', b),
@@ -163,4 +169,3 @@
 
   window.TT = TT;
 })();
-
