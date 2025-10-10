@@ -191,4 +191,22 @@
     };
     window.ttApi = Object.assign(window.ttApi || {}, { getToken, setTokens, clearTokens, authHeader, fetchJSON });
   } catch {}
+
+  // Allow page when user has ANY of the provided roles; else send to role-select
+  if (typeof window.protectAny !== 'function') {
+    window.protectAny = async function(roles){
+      try {
+        const headers = (TT && typeof TT.authHeader === 'function') ? TT.authHeader() : {};
+        const res = await fetch('/api/my-roles', { headers });
+        if (res.status === 401) { location.replace('/auth/login.html'); return; }
+        const json = await res.json().catch(()=>({}));
+        const arr = Array.isArray(json?.roles) ? json.roles : (Array.isArray(json?.data?.roles) ? json.data.roles : []);
+        const set = new Set(arr.map(r => String(r||'').toUpperCase()));
+        const ok = (roles||[]).some(r => set.has(String(r||'').toUpperCase()));
+        if (!ok) location.replace('/auth/role-select.html');
+      } catch {
+        location.replace('/auth/login.html');
+      }
+    }
+  }
 })();

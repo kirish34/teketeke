@@ -19,16 +19,24 @@
     <div class="top">
       <strong>Matatu Owner Console</strong>
       <span class="badge">WIP — page shell</span>
-      <span class="muted" style="margin-left:auto"><a href="/">Home</a></span>
+      <span class="muted" style="margin-left:auto">
+        <a href="/auth/role-select.html">Role Select</a> ·
+        <a href="#" id="logoutLink">Logout</a>
+      </span>
     </div>
     <div class="card">
       <p class="muted">This is a minimal placeholder. Functionality will be added here.</p>
     </div>
   </div>
+  <script src="/js/api.js"></script>
   <script>
-    const admin = !!localStorage.getItem('tt_root_token');
-    const member = !!localStorage.getItem('auth_token');
-    console.log('ADMIN_TOKEN?', admin, 'AUTH_TOKEN?', member);
+    if (typeof ensureAuthOrRoot === 'function') ensureAuthOrRoot();
+    if (typeof protect === 'function') protect('MATATU_OWNER');
+    document.getElementById('logoutLink')?.addEventListener('click', (e)=>{
+      e.preventDefault();
+      ['tt_root_token','tt_admin_token','auth_token'].forEach(k=>localStorage.removeItem(k));
+      location.replace('/auth/login.html');
+    });
   </script>
 </body>
 </html>

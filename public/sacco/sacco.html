@@ -144,7 +144,11 @@
 // Migrated to /u/* authenticated endpoints with TT.jget; falls back to admin lists when only root token is present.
 (function(){
   if (typeof ensureAuthOrRoot === 'function') ensureAuthOrRoot();
-  if (typeof protect === 'function') protect('SACCO_ADMIN');
+  if (typeof protectAny === 'function') {
+    protectAny(['SACCO_ADMIN','SACCO_STAFF']);
+  } else if (typeof protect === 'function') {
+    protect('SACCO_STAFF');
+  }
   // ---------- utils ----------
   const $ = id => document.getElementById(id);
   const fmt = n => Number(n||0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
