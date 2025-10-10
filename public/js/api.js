@@ -168,4 +168,27 @@
   };
 
   window.TT = TT;
+  // --- lightweight compatibility wrapper for prompts expecting `ttApi`
+  try {
+    const getToken = () => getRoot() || getAuth() || '';
+    const setTokens = (token) => { setRoot(token || ''); };
+    const clearTokens = () => { clearRoot(); };
+    const authHeader = () => {
+      const t = getToken();
+      return t ? { Authorization: `Bearer ${t}` } : {};
+    };
+    const fetchJSON = async (url, opts = {}) => {
+      const res = await fetch(url, opts);
+      const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+      const body = ct.includes('application/json') ? await res.json() : await res.text();
+      if (!res.ok) {
+        const msg = (body && body.error) || (body && body.message) || res.statusText || 'Request failed';
+        const err = new Error(msg);
+        try { err.status = res.status; err.body = body; } catch {}
+        throw err;
+      }
+      return body;
+    };
+    window.ttApi = Object.assign(window.ttApi || {}, { getToken, setTokens, clearTokens, authHeader, fetchJSON });
+  } catch {}
 })();
