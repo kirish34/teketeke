@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TekeTeke — Taxi Console</title>
+  <style>
+    :root{
+      --sky:#0ea5e9;        /* sky blue */
+      --bg:#f1f5f9;         /* slate-100 */
+      --card:#ffffff;       /* white */
+      --ink:#0f172a;        /* slate-900 */
+      --muted:#64748b;      /* slate-500 */
+      --ok:#16a34a;         /* green-600 */
+      --warn:#b45309;       /* amber-700 */
+      --err:#b91c1c;        /* red-700 */
+      --border:#e2e8f0;     /* slate-200 */
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:0;background:var(--bg);color:var(--ink);padding:18px}
+
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+    .brand{display:flex;align-items:center;gap:10px}
+    h1{margin:0;font-size:22px;font-weight:900;color:var(--sky)}
+    .nav a{display:inline-block;background:var(--sky);color:#fff;text-decoration:none;padding:8px 12px;border-radius:10px;font-weight:900}
+
+    section{background:var(--card);margin-top:16px;padding:14px;border-radius:12px;border:1px solid var(--border);box-shadow:0 1px 10px rgba(2,6,23,.06)}
+    section h2{margin:0 0 10px 0;color:var(--sky);font-size:18px;font-weight:900}
+
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row > *{flex:1 1 240px}
+
+    label{display:block;font-size:12px;color:var(--muted);font-weight:800;margin:8px 0 6px}
+    input,select,button,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);font:inherit}
+    textarea{min-height:64px;resize:vertical}
+    button{background:var(--sky);color:#fff;border-color:transparent;font-weight:900;cursor:pointer}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;font-weight:900}
+    .ok{color:var(--ok)}
+    .warn{color:var(--warn)}
+    .err{color:var(--err)}
+
+    .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .kpi{background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+    .kpi .v{font-size:20px;font-weight:1000;color:var(--ink)}
+    .kpi .l{font-size:12px;color:var(--muted);font-weight:800}
+    @media(max-width: 760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+    .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    @media(max-width: 760px){.grid-2{grid-template-columns:1fr}}
+
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:10px;border:1px solid #e5e7eb;font-size:14px}
+    th{background:var(--sky);color:#fff;text-align:left}
+
+    .hint{color:var(--muted);font-size:12px;font-weight:800}
+    .error{color:var(--err);font-weight:900;margin-top:8px}
+    .success{color:var(--ok);font-weight:900;margin-top:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Taxi Console</h1>
+    </div>
+    <div class="nav">
+      <a href="/auth/role-select.html">↩ Role Select</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>Status</h2>
+    <div class="row">
+      <div>
+        <div class="pill" id="authState">Checking token…</div>
+        <div class="hint" id="whoamiHint">—</div>
+      </div>
+      <div>
+        <label for="taxiNo">Taxi Identifier</label>
+        <input id="taxiNo" placeholder="e.g., KDA 123A" />
+      </div>
+      <div>
+        <label for="driver">Driver Name</label>
+        <input id="driver" placeholder="optional" />
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Today</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="kTillToday">—</div><div class="l">Till Today (KSh)</div></div>
+      <div class="kpi"><div class="v" id="kCashToday">—</div><div class="l">Cash Today (KSh)</div></div>
+      <div class="kpi"><div class="v" id="kExpToday">—</div><div class="l">Expenses Today</div></div>
+      <div class="kpi"><div class="v" id="kNetToday">—</div><div class="l">Net Today</div></div>
+    </div>
+    <div class="hint" id="sumHint">Refreshing…</div>
+  </section>
+
+  <section>
+    <h2>Actions</h2>
+    <div class="grid-2">
+      <div>
+        <label for="cashAmt">Collect Cash (KSh)</label>
+        <input id="cashAmt" type="number" min="0" placeholder="e.g., 500" />
+        <label for="cashName">Payer Name</label>
+        <input id="cashName" placeholder="optional" />
+        <label for="cashPhone">Phone</label>
+        <input id="cashPhone" placeholder="optional" />
+        <label for="cashNotes">Notes</label>
+        <textarea id="cashNotes" placeholder="optional"></textarea>
+        <button id="btnCash">Save Cash</button>
+        <div id="cashMsg" class="hint"></div>
+      </div>
+
+      <div>
+        <label for="expCat">Enter Expense</label>
+        <select id="expCat">
+          <option value="Fuel">Fuel</option>
+          <option value="Parking">Parking</option>
+          <option value="Maintenance">Maintenance</option>
+          <option value="Other">Other</option>
+        </select>
+        <label for="expAmt">Amount (KSh)</label>
+        <input id="expAmt" type="number" min="0" placeholder="e.g., 200" />
+        <label for="expNotes">Notes</label>
+        <textarea id="expNotes" placeholder="optional"></textarea>
+        <button id="btnExp">Save Expense</button>
+        <div id="expMsg" class="hint"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent</h2>
+    <div class="grid-2">
+      <div>
+        <h3 class="hint" style="margin:0 0 6px 0">Cash</h3>
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Name</th><th>Phone</th><th>Amount</th></tr>
+          </thead>
+          <tbody id="cashBody"></tbody>
+        </table>
+      </div>
+      <div>
+        <h3 class="hint" style="margin:0 0 6px 0">Expenses</h3>
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Category</th><th>Amount</th><th>Notes</th></tr>
+          </thead>
+          <tbody id="expBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // --- Token helpers ---
+    const Token = {
+      get(){
+        return localStorage.getItem('tt_root_token')
+          || localStorage.getItem('tt_admin_token')
+          || localStorage.getItem('auth_token')
+          || '';
+      },
+      header(){
+        const t = Token.get();
+        return t ? { Authorization: `Bearer ${t}` } : {};
+      }
+    };
+
+    const $ = (id)=>document.getElementById(id);
+    const fmt = (n)=> new Intl.NumberFormat('en-KE',{maximumFractionDigits:0}).format(Number(n||0));
+
+    async function authFetch(url, opts={}){
+      const res = await fetch(url, {
+        ...opts,
+        headers:{ 'Content-Type': 'application/json', ...(opts.headers||{}), ...Token.header() },
+      });
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const ct = res.headers.get('content-type')||'';
+      return ct.includes('application/json') ? res.json() : res.text();
+    }
+
+    function setAuthState(){
+      const pill = $('authState');
+      if(Token.get()) { pill.textContent='Token: present'; pill.classList.add('ok'); }
+      else { pill.textContent='Token: missing'; pill.classList.add('warn'); }
+    }
+
+    // --- Summary ---
+    async function refreshSummary(){
+      $('sumHint').textContent='Refreshing…';
+      try{
+        const today = new Date().toISOString().slice(0,10);
+        const data = await authFetch(`/api/taxi/summary?date=${today}`);
+        const s = data?.summary || data || {};
+        const till = s.till_today || s.till || 0;
+        const cash = s.cash_today || s.cash || 0;
+        const exp  = s.exp_today  || s.expenses || 0;
+        $('kTillToday').textContent = fmt(till);
+        $('kCashToday').textContent = fmt(cash);
+        $('kExpToday').textContent  = fmt(exp);
+        $('kNetToday').textContent  = fmt(Number(till) + Number(cash) - Number(exp));
+        $('sumHint').textContent='';
+      }catch(e){
+        $('sumHint').textContent='No summary (check token/permissions).';
+      }
+    }
+
+    // --- Recent lists ---
+    async function refreshCash(){
+      try{
+        const out = await authFetch('/api/taxi/cash?limit=20');
+        const rows = Array.isArray(out?.items) ? out.items : (Array.isArray(out) ? out : []);
+        const tbody = $('cashBody'); tbody.innerHTML='';
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          const t = r.created_at || r.time || r.timestamp;
+          tr.innerHTML = `<td>${t? new Date(t).toLocaleTimeString():'—'}</td><td>${r.name||''}</td><td>${r.phone||''}</td><td>${fmt(r.amount||0)}</td>`;
+          tbody.appendChild(tr);
+        });
+      }catch(e){/* ignore */}
+    }
+
+    async function refreshExp(){
+      try{
+        const out = await authFetch('/api/taxi/expenses?limit=20');
+        const rows = Array.isArray(out?.items) ? out.items : (Array.isArray(out) ? out : []);
+        const tbody = $('expBody'); tbody.innerHTML='';
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          const t = r.created_at || r.time || r.timestamp;
+          tr.innerHTML = `<td>${t? new Date(t).toLocaleTimeString():'—'}</td><td>${r.category||'—'}</td><td>${fmt(r.amount||0)}</td><td>${r.notes||''}</td>`;
+          tbody.appendChild(tr);
+        });
+      }catch(e){/* ignore */}
+    }
+
+    // --- Actions ---
+    async function saveCash(){
+      const amount = Number($('cashAmt').value||0);
+      const name = $('cashName').value||'';
+      const phone = $('cashPhone').value||'';
+      const notes = $('cashNotes').value||'';
+      const out = $('cashMsg'); out.textContent='Saving…';
+      try{
+        if(!amount) throw new Error('Amount is required');
+        await authFetch('/api/taxi/cash', { method:'POST', body: JSON.stringify({ amount, name, phone, notes }) });
+        out.textContent='Saved ✓'; out.className='success';
+        $('cashAmt').value=''; $('cashName').value=''; $('cashPhone').value=''; $('cashNotes').value='';
+        refreshSummary(); refreshCash();
+      }catch(e){ out.textContent=`Error: ${e.message||e}`; out.className='error'; }
+    }
+
+    async function saveExpense(){
+      const category = $('expCat').value||'Other';
+      const amount = Number($('expAmt').value||0);
+      const notes = $('expNotes').value||'';
+      const out = $('expMsg'); out.textContent='Saving…';
+      try{
+        if(!amount) throw new Error('Amount is required');
+        await authFetch('/api/taxi/expenses', { method:'POST', body: JSON.stringify({ category, amount, notes }) });
+        out.textContent='Saved ✓'; out.className='success';
+        $('expAmt').value=''; $('expNotes').value='';
+        refreshSummary(); refreshExp();
+      }catch(e){ out.textContent=`Error: ${e.message||e}`; out.className='error'; }
+    }
+
+    // --- Init ---
+    (function main(){
+      setAuthState();
+      refreshSummary(); refreshCash(); refreshExp();
+      $('btnCash').addEventListener('click', saveCash);
+      $('btnExp').addEventListener('click', saveExpense);
+      // background refresh
+      setInterval(()=>{ refreshSummary(); }, 30000);
+    })();
+  </script>
+</body>
+</html>

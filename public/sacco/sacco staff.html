@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TekeTeke — SACCO Staff</title>
+  <style>
+    :root{
+      --sky:#0ea5e9;          /* sky blue */
+      --sky-700:#0284c7;      /* darker sky */
+      --bg:#f4f7fb;
+      --card:#ffffff;
+      --border:#e5e7eb;
+      --text:#0f172a;
+      --muted:#6b7280;
+      --ok:#16a34a;           /* green */
+      --warn:#b45309;         /* amber */
+      --err:#b91c1c;          /* red */
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    a{color:inherit}
+    header{padding:16px; background:var(--card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10}
+    .top{display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap}
+    .brand{font-weight:900; color:var(--sky); font-size:20px}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:800}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+
+    main{padding:16px; max-width:900px; margin:0 auto}
+    section{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-top:14px; box-shadow:0 0 10px rgba(0,0,0,.04)}
+    section h2{margin:0 0 10px 0; color:var(--sky); font-weight:900; font-size:18px}
+
+    .grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
+    @media (min-width: 760px){ .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))} }
+
+    label{display:block; font-size:12px; font-weight:800; color:var(--muted); margin-bottom:6px}
+    input,select,button,textarea{width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); font:inherit}
+    textarea{min-height:68px; resize:vertical}
+    button{background:var(--sky); color:#fff; border-color:transparent; font-weight:900; cursor:pointer}
+    button.secondary{background:#fff; color:var(--sky); border-color:var(--sky)}
+    button[disabled]{opacity:.6; cursor:not-allowed}
+
+    .kpis{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
+    .kpi{background:#f8fbff; border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center}
+    .kpi .v{font-size:20px; font-weight:900}
+    .kpi .l{font-size:12px; color:var(--muted); font-weight:800}
+    @media (min-width: 760px){ .kpis{grid-template-columns:repeat(4,minmax(0,1fr))} }
+
+    table{width:100%; border-collapse:collapse}
+    th,td{border:1px solid var(--border); padding:8px; font-size:14px}
+    th{background:var(--sky); color:#fff; text-align:left}
+
+    .hint{color:var(--muted); font-size:12px; font-weight:800}
+    .msg.err{color:var(--err); font-weight:900; margin-top:8px}
+    .msg.ok{color:var(--ok); font-weight:900; margin-top:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div>
+        <div class="brand">SACCO Staff</div>
+        <div id="whoami" class="hint">—</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <div id="tokenPill" class="pill">Token: checking…</div>
+        <button id="logoutBtn" class="secondary">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Selection row -->
+    <section>
+      <h2>Context</h2>
+      <div class="grid">
+        <div>
+          <label for="saccoSelect">SACCO</label>
+          <select id="saccoSelect"></select>
+        </div>
+        <div>
+          <label for="matatuSelect">Matatu (Plate)</label>
+          <select id="matatuSelect"></select>
+        </div>
+      </div>
+      <div class="hint" id="contextHint" style="margin-top:8px">Select SACCO and matatu to begin.</div>
+    </section>
+
+    <!-- Daily totals like in your sketch: total received and total deducted -->
+    <section>
+      <h2>Today</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="k_total">—</div><div class="l">Total Received (KES)</div></div>
+        <div class="kpi"><div class="v" id="k_fee">—</div><div class="l">Total Fees / Deductions</div></div>
+        <div class="kpi"><div class="v" id="k_savings">—</div><div class="l">Savings Collected</div></div>
+        <div class="kpi"><div class="v" id="k_loan">—</div><div class="l">Loan Repayments</div></div>
+      </div>
+      <div class="hint" id="sumHint" style="margin-top:8px">Refreshing…</div>
+    </section>
+
+    <!-- Cash collection form (OFF auto system / ON cash collection idea) -->
+    <section>
+      <h2>Collect Cash</h2>
+      <div class="grid">
+        <div>
+          <label for="kind">Type</label>
+          <select id="kind">
+            <option value="DAILY_FEE">Daily Fee</option>
+            <option value="SAVINGS">Savings</option>
+            <option value="LOAN_REPAY">Loan Repay</option>
+          </select>
+        </div>
+        <div>
+          <label for="amount">Amount (KES)</label>
+          <input id="amount" type="number" min="0" inputmode="numeric" placeholder="e.g., 200" />
+        </div>
+        <div>
+          <label for="payerName">Payer Name</label>
+          <input id="payerName" type="text" placeholder="optional" />
+        </div>
+        <div>
+          <label for="payerPhone">Payer Phone</label>
+          <input id="payerPhone" type="tel" inputmode="tel" placeholder="07… (optional)" />
+        </div>
+      </div>
+      <label for="notes" style="margin-top:8px">Notes</label>
+      <textarea id="notes" placeholder="optional"></textarea>
+      <div style="display:flex; gap:8px; margin-top:10px">
+        <button id="btnCollect">Record Cash</button>
+        <button id="btnReset" class="secondary" type="button">Clear</button>
+      </div>
+      <div id="collectMsg" class="msg" aria-live="polite"></div>
+    </section>
+
+    <!-- List of all payments (today) like the sketch -->
+    <section>
+      <h2>Payments Today</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Payer Name</th>
+            <th>Phone</th>
+            <th>Amount</th>
+            <th>Time</th>
+            <th>Type</th>
+          </tr>
+        </thead>
+        <tbody id="payBody"></tbody>
+      </table>
+      <div class="hint" id="payHint" style="margin-top:8px">—</div>
+    </section>
+  </main>
+
+  <script>
+    // ===== Token helpers (compatible with other pages) =====
+    const Token = {
+      get(){ return localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token') || localStorage.getItem('auth_token') || ''; },
+      set(t){ if(!t) return; localStorage.setItem('tt_root_token', t); localStorage.setItem('tt_admin_token', t); localStorage.setItem('auth_token', t); },
+      header(){ const t = Token.get(); return t ? { Authorization: `Bearer ${t}` } : {}; }
+    };
+
+    const $ = (id)=>document.getElementById(id);
+    const fmt = (n)=> new Intl.NumberFormat('en-KE',{maximumFractionDigits:0}).format(Number(n||0));
+
+    function setTokenPill(){
+      const el = $('tokenPill');
+      if(Token.get()){ el.textContent = 'Token: present'; el.classList.add('ok'); }
+      else { el.textContent = 'Token: missing'; el.classList.add('warn'); }
+    }
+
+    async function authFetch(url, opts={}){
+      const res = await fetch(url, { ...opts, headers: { 'Content-Type':'application/json', ...(opts.headers||{}), ...Token.header() }});
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const ct = res.headers.get('content-type')||''; return ct.includes('application/json') ? res.json() : res.text();
+    }
+
+    // ===== Bootstrap: profile → fill SACCO + Matatu selects =====
+    async function loadContext(){
+      try{
+        const me = await authFetch('/api/sacco/profile');
+        $('whoami').textContent = me?.user?.email ? `Signed in as ${me.user.email}` : 'Signed in';
+        // saccos
+        const sSel = $('saccoSelect'); sSel.innerHTML='';
+        (me?.saccos||[]).forEach(s=>{ const o=document.createElement('option'); o.value=s.id; o.textContent=s.name || `Sacco ${s.id}`; sSel.appendChild(o); });
+        if(!sSel.value && sSel.options.length) sSel.selectedIndex = 0;
+        // matatus
+        await loadMatatus();
+        $('contextHint').textContent = 'Ready';
+      }catch(e){ $('contextHint').textContent = 'Could not load profile (login?)'; }
+    }
+
+    async function loadMatatus(){
+      const sid = $('saccoSelect').value; if(!sid) return;
+      try{
+        const r = await authFetch(`/u/sacco/${encodeURIComponent(sid)}/matatus`);
+        const arr = r?.items || r || [];
+        const mSel = $('matatuSelect'); mSel.innerHTML='';
+        arr.forEach(m=>{ const o=document.createElement('option'); o.value=m.id || m.matatu_id || m.matatuId; o.textContent=m.number_plate || m.plate || `Matatu ${o.value}`; mSel.appendChild(o); });
+        if(!mSel.value && mSel.options.length) mSel.selectedIndex = 0;
+      }catch{ /* ignore */ }
+    }
+
+    // ===== Summary (totals for today) =====
+    async function refreshSummary(){
+      const sid = $('saccoSelect').value; if(!sid){ $('sumHint').textContent='Select a SACCO'; return; }
+      $('sumHint').textContent='Refreshing…';
+      try{
+        const today = new Date().toISOString().slice(0,10);
+        const d = await authFetch(`/u/sacco/${encodeURIComponent(sid)}/summary?date=${today}`);
+        const s = d?.summary || d || {};
+        const total = Number(s.total_fares||0) + Number(s.SAVINGS||0) + Number(s.LOAN_REPAY||0) + Number(s.DAILY_FEE||0);
+        $('k_total').textContent = fmt(total);
+        $('k_fee').textContent = fmt(s.deductions || s.SACCO_FEE || 0);
+        $('k_savings').textContent = fmt(s.SAVINGS || 0);
+        $('k_loan').textContent = fmt(s.LOAN_REPAY || 0);
+        $('sumHint').textContent='';
+      }catch(e){ $('sumHint').textContent='No summary available'; }
+    }
+
+    // ===== Payments table =====
+    async function refreshPayments(){
+      const sid = $('saccoSelect').value; if(!sid){ $('payHint').textContent='Select a SACCO'; return; }
+      try{
+        const tx = await authFetch(`/u/sacco/${encodeURIComponent(sid)}/transactions?limit=50`);
+        const rows = Array.isArray(tx?.items) ? tx.items : (Array.isArray(tx)? tx : []);
+        const T = $('payBody'); T.innerHTML='';
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          const when = r.created_at || r.time || r.timestamp;
+          const amt = r.amount || r.fare_amount_kes || r.value || 0;
+          const who = r.payer_name || r.passenger_name || '';
+          const phone = r.msisdn || r.passenger_msisdn || '';
+          const typ = r.type || r.kind || r.category || '—';
+          tr.innerHTML = `<td>${who}</td><td>${phone}</td><td>${fmt(amt)}</td><td>${when? new Date(when).toLocaleTimeString(): '—'}</td><td>${typ}</td>`;
+          T.appendChild(tr);
+        });
+        $('payHint').textContent = `${rows.length} row(s)`;
+      }catch(e){ $('payHint').textContent = 'Could not load payments'; }
+    }
+
+    // ===== Collect Cash (POST) =====
+    async function collectCash(){
+      const sid = $('saccoSelect').value; const mid = $('matatuSelect').value;
+      const kind = $('kind').value; const amount = Number($('amount').value||0);
+      const payer_name = $('payerName').value.trim(); const payer_phone = $('payerPhone').value.trim();
+      const notes = $('notes').value.trim(); const out = $('collectMsg');
+      out.className = 'msg'; out.textContent = 'Saving…';
+      try{
+        if(!sid || !mid || !amount) throw new Error('SACCO, matatu and amount are required');
+        const body = { sacco_id:sid, matatu_id:mid, kind, amount, payer_name, payer_phone, notes };
+        // Endpoint name can be adjusted server-side; keep a single place here
+        await authFetch('/api/staff/cash', { method:'POST', body: JSON.stringify(body) });
+        out.className = 'msg ok'; out.textContent = 'Recorded ✓';
+        $('amount').value=''; $('payerName').value=''; $('payerPhone').value=''; $('notes').value='';
+        refreshSummary(); refreshPayments();
+      }catch(e){ out.className = 'msg err'; out.textContent = `Error: ${e.message||e}`; }
+    }
+
+    function clearForm(){
+      ['amount','payerName','payerPhone','notes'].forEach(id=>$(id).value='');
+      $('kind').value='DAILY_FEE';
+      $('collectMsg').textContent='';
+    }
+
+    // ===== Wire up =====
+    (function main(){
+      setTokenPill();
+      $('logoutBtn').onclick = ()=>{ localStorage.clear(); location.href='/auth/logout.html'; };
+      $('saccoSelect').onchange = ()=>{ loadMatatus().then(()=>{ refreshSummary(); refreshPayments(); }); };
+      $('btnCollect').onclick = collectCash;
+      $('btnReset').onclick = clearForm;
+      loadContext().then(()=>{ refreshSummary(); refreshPayments(); });
+      setInterval(()=>{ refreshSummary(); refreshPayments(); }, 30000);
+    })();
+  </script>
+</body>
+</html>

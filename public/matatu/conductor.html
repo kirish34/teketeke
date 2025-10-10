@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TekeTeke — Conductor Console</title>
+  <style>
+    :root{
+      --sky:#0ea5e9;   /* sky blue */
+      --sky2:#0369a1;  /* darker sky */
+      --bg:#f5f7fb;
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted:#5f6b7a;
+      --ok:#1a7f37; --warn:#b54708; --err:#b42318;
+      --border:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;background:linear-gradient(180deg,var(--sky) 0%, var(--sky2) 100%);color:#fff}
+    h1{margin:0;font-size:20px;font-weight:900}
+    a.link{color:#fff;text-decoration:none;font-weight:800}
+
+    .wrap{padding:14px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 4px 20px rgba(0,0,0,.06);margin-bottom:14px}
+    .card h2{margin:0 0 10px 0;font-size:18px;color:var(--sky2);font-weight:900}
+    .row{display:flex;flex-wrap:wrap;gap:10px}
+    .row>*{flex:1 1 220px}
+
+    label{display:block;font-size:12px;color:var(--muted);font-weight:800;margin:6px 0}
+    input,select,button,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);font:inherit}
+    button{background:var(--sky);color:#fff;border:0;font-weight:900;cursor:pointer}
+    button.ghost{background:#fff;color:var(--sky2);border:2px solid var(--sky2)}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .kpi{background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center}
+    .kpi .v{font-size:18px;font-weight:900}
+    .kpi .l{font-size:12px;color:var(--muted);font-weight:800}
+    @media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid var(--border);padding:8px;font-size:14px}
+    th{background:var(--sky2);color:#fff;text-align:left}
+
+    .hint{color:var(--muted);font-size:12px;font-weight:700}
+    .error{color:var(--err);font-weight:800}
+    .success{color:var(--ok);font-weight:800}
+
+    /* collapsible selector panel (hidden by default) */
+    #selPanel{display:none}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Conductor Console</h1>
+    <nav>
+      <a class="link" href="/auth/role-select.html">Dashboards ▸</a>
+    </nav>
+  </header>
+
+  <div class="wrap">
+    <!-- Vehicle / SACCO identity (compact, no token text) -->
+    <section class="card" id="ident">
+      <h2>Vehicle</h2>
+      <div class="row" id="identRow">
+        <div>
+          <label>SACCO</label>
+          <div id="saccoName" class="hint">Loading…</div>
+        </div>
+        <div>
+          <label>Number Plate</label>
+          <div id="numberPlate" class="hint">—</div>
+        </div>
+        <div>
+          <label>Nickname</label>
+          <div id="nick" class="hint">—</div>
+        </div>
+        <div style="align-self:end">
+          <button id="btnToggleSel" class="ghost" style="width:auto">Change…</button>
+        </div>
+      </div>
+      <!-- hidden selection panel (only when change is needed) -->
+      <div id="selPanel" style="margin-top:10px">
+        <div class="row">
+          <div>
+            <label for="saccoSelect">Select SACCO</label>
+            <select id="saccoSelect"></select>
+          </div>
+          <div>
+            <label for="matatuSelect">Select Matatu</label>
+            <select id="matatuSelect"></select>
+          </div>
+          <div style="align-self:end">
+            <button id="btnSaveSel">Use Selection</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPIs (today) -->
+    <section class="card">
+      <h2>Today</h2>
+      <div class="grid">
+        <div class="kpi"><div class="v" id="kpiFares">—</div><div class="l">Total received (KES)</div></div>
+        <div class="kpi"><div class="v" id="kpiDeductions">—</div><div class="l">Total deducted (KES)</div></div>
+        <div class="kpi"><div class="v" id="kpiNet">—</div><div class="l">Net (KES)</div></div>
+        <div class="kpi"><div class="v" id="kpiTrips">—</div><div class="l">Trips (manual)</div></div>
+      </div>
+      <div class="hint" id="todayHint">Refreshing…</div>
+    </section>
+
+    <!-- Manual Trip Controls -->
+    <section class="card" id="tripCard">
+      <h2>Current Trip</h2>
+      <div class="row">
+        <div>
+          <label>Trip started</label>
+          <div id="tripStart" class="hint">—</div>
+        </div>
+        <div>
+          <label>Total for this trip (KES)</label>
+          <div id="tripTotal" class="hint" style="font-weight:900;font-size:18px">0</div>
+        </div>
+        <div style="align-self:end;display:flex;gap:8px">
+          <button id="btnStartTrip">Start New Trip</button>
+          <button id="btnEndTrip" class="ghost">End/Reset</button>
+        </div>
+      </div>
+      <div class="hint">Manual trips are local to this device: the timer resets when you tap <b>Start New Trip</b>.</div>
+    </section>
+
+    <!-- All payments (today) -->
+    <section class="card">
+      <h2>List of Payments (today)</h2>
+      <table>
+        <thead>
+          <tr><th>Payer name</th><th>Phone</th><th>Amount</th><th>Time</th></tr>
+        </thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </section>
+
+    <!-- Payments in current trip window -->
+    <section class="card">
+      <h2>Trip Payments</h2>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Payer name</th><th>Phone</th><th>Amount</th><th>Time</th></tr>
+        </thead>
+        <tbody id="tripBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    // ---------------- Token helpers ----------------
+    const Token = {
+      get(){ return localStorage.getItem('tt_root_token') || localStorage.getItem('tt_admin_token') || localStorage.getItem('auth_token') || '' },
+      set(t){ if(!t) return; localStorage.setItem('tt_root_token',t); localStorage.setItem('tt_admin_token',t); localStorage.setItem('auth_token',t); },
+      header(){ const t = Token.get(); return t? { Authorization:`Bearer ${t}` } : {}; }
+    };
+
+    async function authFetch(url, opts={}){
+      const res = await fetch(url, { ...opts, headers:{ 'Content-Type':'application/json', ...(opts.headers||{}), ...Token.header() } });
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const ct = res.headers.get('content-type')||'';
+      return ct.includes('application/json') ? res.json() : res.text();
+    }
+
+    // ---------------- State ----------------
+    let STATE = { saccoId:null, saccoName:'', matatuId:null, plate:'', nick:'', tx:[], tripStart:null, tripsCount: Number(localStorage.getItem('tt_trips_count')||'0') };
+
+    const $ = (id)=>document.getElementById(id);
+    const fmt = (n)=> new Intl.NumberFormat('en-KE',{maximumFractionDigits:0}).format(Number(n||0));
+
+    function saveSelection(){
+      localStorage.setItem('tt_sacco_id', STATE.saccoId||'');
+      localStorage.setItem('tt_matatu_id', STATE.matatuId||'');
+      localStorage.setItem('tt_matatu_plate', STATE.plate||'');
+      localStorage.setItem('tt_matatu_nick', STATE.nick||'');
+    }
+    function loadSelection(){
+      STATE.saccoId = localStorage.getItem('tt_sacco_id');
+      STATE.matatuId = localStorage.getItem('tt_matatu_id');
+      STATE.plate   = localStorage.getItem('tt_matatu_plate')||'';
+      STATE.nick    = localStorage.getItem('tt_matatu_nick')||'';
+    }
+
+    function renderIdent(){
+      $('saccoName').textContent = STATE.saccoName || '—';
+      $('numberPlate').textContent = STATE.plate || '—';
+      $('nick').textContent = STATE.nick || '—';
+    }
+
+    function toggleSel(){
+      const el = $('selPanel');
+      el.style.display = el.style.display==='none' ? 'block' : 'none';
+    }
+
+    // ---------------- Bootstrap profile ----------------
+    async function loadProfile(){
+      loadSelection();
+      try{
+        const me = await authFetch('/api/sacco/profile');
+        // saccos
+        const saccos = me?.saccos || me?.items || [];
+        const sSel = $('saccoSelect'); sSel.innerHTML='';
+        saccos.forEach(s=>{
+          const id = s.id || s.sacco_id || s.saccoId;
+          const name = s.name || s.sacco_name || `Sacco ${id}`;
+          const o = new Option(name,id); sSel.add(o);
+          if(!STATE.saccoId) { STATE.saccoId = id; STATE.saccoName = name; }
+          if(id===STATE.saccoId) STATE.saccoName = name;
+        });
+
+        // matatus
+        const mats = me?.matatus || me?.vehicles || [];
+        const mSel = $('matatuSelect'); mSel.innerHTML='';
+        mats.forEach(m=>{
+          const id = m.id || m.matatu_id || m.matatuId;
+          const plate = m.plate || m.registration || m.reg || `M-${id}`;
+          const nick  = m.nickname || m.nick || m.name || '';
+          const o = new Option(`${plate}${nick?` · ${nick}`:''}`, id); mSel.add(o);
+          if(!STATE.matatuId){ STATE.matatuId = id; STATE.plate = plate; STATE.nick = nick; }
+          if(id===STATE.matatuId){ STATE.plate = plate; STATE.nick = nick; }
+        });
+        saveSelection();
+        renderIdent();
+      }catch(e){
+        $('saccoName').textContent = 'Login required';
+      }
+    }
+
+    // ---------------- Today & payments ----------------
+    async function refreshToday(){
+      if(!STATE.saccoId){ $('todayHint').textContent='Select a SACCO'; return; }
+      $('todayHint').textContent='Refreshing…';
+      try{
+        const today = new Date().toISOString().slice(0,10);
+        const sum = await authFetch(`/u/sacco/${encodeURIComponent(STATE.saccoId)}/summary?date=${today}`);
+        const s = sum?.summary || sum || {};
+        const fares = Number(s.total_fares||s.fares||s.amount||0);
+        const fees  = Number(s.deductions||s.fees||0);
+        $('kpiFares').textContent = fmt(fares);
+        $('kpiDeductions').textContent = fmt(fees);
+        $('kpiNet').textContent = fmt(fares - fees);
+        $('todayHint').textContent='';
+      }catch(e){ $('todayHint').textContent='No summary available'; }
+    }
+
+    async function refreshTx(){
+      if(!STATE.saccoId){ return; }
+      try{
+        const tx = await authFetch(`/u/sacco/${encodeURIComponent(STATE.saccoId)}/transactions?limit=200`);
+        const rows = Array.isArray(tx?.items)? tx.items : (Array.isArray(tx)? tx: []);
+        // filter for this matatu if id present
+        const filtered = STATE.matatuId ? rows.filter(r=> (r.matatu_id||r.matatuId||r.vehicle_id)===STATE.matatuId || (r.plate||r.registration)===STATE.plate) : rows;
+        STATE.tx = filtered;
+        renderTx();
+        renderTrip();
+      }catch(e){ /* ignore */ }
+    }
+
+    function renderTx(){
+      const tbody = $('txBody'); tbody.innerHTML='';
+      STATE.tx.forEach(r=>{
+        const tr = document.createElement('tr');
+        const payer = r.payer_name || r.name || r.payer || '—';
+        const phone = r.phone || r.msisdn || r.mobile || '—';
+        const amt = r.amount || r.fare || r.value || 0;
+        const ts = r.created_at || r.time || r.timestamp;
+        tr.innerHTML = `<td>${payer}</td><td>${phone}</td><td>${fmt(amt)}</td><td>${ts? new Date(ts).toLocaleTimeString(): '—'}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ---------------- Manual trip (local) ----------------
+    function getTripStart(){
+      const t = Number(localStorage.getItem('tt_trip_start_ts')||'0');
+      return t>0 ? t : null;
+    }
+    function setTripStart(ts){
+      localStorage.setItem('tt_trip_start_ts', String(ts));
+      STATE.tripStart = ts;
+    }
+    function clearTrip(){ localStorage.removeItem('tt_trip_start_ts'); STATE.tripStart = null; }
+
+    function renderTrip(){
+      const ts = STATE.tripStart || getTripStart();
+      if(ts){
+        $('tripStart').textContent = new Date(ts).toLocaleTimeString();
+        // compute totals since ts
+        const tripRows = STATE.tx.filter(r=>{
+          const t = new Date(r.created_at||r.time||r.timestamp||0).getTime();
+          return t && t>=ts;
+        });
+        // cash-in = positive amounts; adjust if API has a type
+        const total = tripRows.reduce((acc,r)=> acc + Number(r.amount||r.fare||r.value||0), 0);
+        $('tripTotal').textContent = fmt(total);
+        // rows table
+        const tb = $('tripBody'); tb.innerHTML='';
+        tripRows.forEach((r,i)=>{
+          const payer = r.payer_name || r.name || r.payer || '—';
+          const phone = r.phone || r.msisdn || r.mobile || '—';
+          const amt = r.amount || r.fare || r.value || 0;
+          const ts2 = r.created_at || r.time || r.timestamp;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${i+1}</td><td>${payer}</td><td>${phone}</td><td>${fmt(amt)}</td><td>${ts2? new Date(ts2).toLocaleTimeString(): '—'}</td>`;
+          tb.appendChild(tr);
+        });
+      }else{
+        $('tripStart').textContent = '— (tap Start New Trip)';
+        $('tripTotal').textContent = '0';
+        $('tripBody').innerHTML='';
+      }
+      $('kpiTrips').textContent = fmt(Number(localStorage.getItem('tt_trips_count')||'0'));
+    }
+
+    function startTrip(){ setTripStart(Date.now()); localStorage.setItem('tt_trips_count', String(Number(localStorage.getItem('tt_trips_count')||'0')+1)); renderTrip(); }
+    function endTrip(){ clearTrip(); renderTrip(); }
+
+    // ---------------- Wire up ----------------
+    (function main(){
+      $('btnToggleSel').addEventListener('click', ()=>{
+        const p = $('selPanel'); p.style.display = p.style.display==='block' ? 'none' : 'block';
+      });
+      $('btnSaveSel').addEventListener('click', ()=>{
+        const sSel = $('saccoSelect'); const mSel = $('matatuSelect');
+        STATE.saccoId = sSel.value||STATE.saccoId; STATE.saccoName = sSel.options[sSel.selectedIndex]?.text||STATE.saccoName;
+        STATE.matatuId = mSel.value||STATE.matatuId;
+        const label = mSel.options[mSel.selectedIndex]?.text || '';
+        STATE.plate = label.split(' · ')[0]||STATE.plate; STATE.nick = label.split(' · ')[1]||STATE.nick;
+        saveSelection(); renderIdent(); refreshToday(); refreshTx(); $('selPanel').style.display='none';
+      });
+
+      $('btnStartTrip').addEventListener('click', startTrip);
+      $('btnEndTrip').addEventListener('click', endTrip);
+
+      loadProfile().then(()=>{ refreshToday(); refreshTx(); STATE.tripStart=getTripStart(); renderTrip(); });
+      // refresh tx periodically (keeps trip view live)
+      setInterval(()=>{ refreshToday(); refreshTx(); }, 30000);
+    })();
+  </script>
+</body>
+</html>

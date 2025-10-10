@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TekeTeke — Boda Boda Console</title>
+  <style>
+    :root{
+      --sky:#0ea5e9; /* sky blue */
+      --sky-600:#0284c7;
+      --bg:#f5f7fb;
+      --card:#ffffff;
+      --muted:#475569;
+      --ok:#15803d;
+      --warn:#b45309;
+      --err:#b91c1c;
+      --border:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:#0f172a;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;}
+    .wrap{max-width:980px;margin:0 auto;padding:18px}
+
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    h1{margin:0;font-size:24px;letter-spacing:.2px;color:var(--sky);font-weight:900}
+    .date{font-weight:800;color:var(--muted)}
+    a.link{color:var(--sky);text-decoration:none;font-weight:900}
+
+    section{background:var(--card);margin-top:14px;padding:14px;border-radius:14px;border:1px solid var(--border);box-shadow:0 6px 16px rgba(2,132,199,.07)}
+    section h2{margin:0 0 10px 0;font-size:18px;color:var(--sky-600);font-weight:900}
+
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row > *{flex:1 1 260px}
+
+    label{display:block;margin:8px 0 6px;font-size:12px;color:var(--muted);font-weight:900}
+    input,select,textarea,button{width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);font:inherit}
+    textarea{min-height:72px;resize:vertical}
+    button{background:var(--sky);color:#fff;border-color:transparent;font-weight:900;cursor:pointer}
+    button:hover{filter:brightness(.97)}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--border);font-size:12px;font-weight:900}
+    .ok{color:var(--ok)}
+    .warn{color:var(--warn)}
+    .err{color:var(--err)}
+
+    .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .kpi{background:#f0f9ff;border:1px solid var(--border);border-radius:14px;padding:12px;text-align:center}
+    .kpi .v{font-size:20px;font-weight:1000;color:#0f172a}
+    .kpi .l{font-size:12px;color:var(--muted);font-weight:900}
+    @media(max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:10px;border:1px solid #e2e8f0;font-size:14px}
+    th{background:var(--sky);color:#fff;text-align:left}
+
+    .hint{color:var(--muted);font-size:12px;font-weight:900}
+    .error{color:var(--err);font-weight:900;margin-top:8px}
+    .success{color:var(--ok);font-weight:900;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Boda Boda Console</h1>
+      <div class="row" style="gap:10px;align-items:center;justify-content:flex-end">
+        <div class="date" id="today"></div>
+        <a class="link" href="/logout.html">Logout</a>
+      </div>
+    </header>
+
+    <section id="status">
+      <h2>Status</h2>
+      <div class="row">
+        <div>
+          <div class="pill" id="authState">Checking token…</div>
+          <div class="hint" id="whoamiHint">—</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Today’s Totals</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="kpiTill">—</div><div class="l">Till (M‑Pesa) Today</div></div>
+        <div class="kpi"><div class="v" id="kpiCash">—</div><div class="l">Cash Today</div></div>
+        <div class="kpi"><div class="v" id="kpiExp">—</div><div class="l">Expenses Today</div></div>
+        <div class="kpi"><div class="v" id="kpiNet">—</div><div class="l">Net Today</div></div>
+      </div>
+      <div class="hint" id="sumHint">Refreshing…</div>
+    </section>
+
+    <section>
+      <h2>Collect Cash</h2>
+      <div class="row">
+        <div>
+          <label for="cashAmount">Amount (KES)</label>
+          <input id="cashAmount" type="number" min="0" placeholder="e.g., 150" />
+          <label for="payerName">Payer Name</label>
+          <input id="payerName" type="text" placeholder="optional" />
+          <label for="payerPhone">Phone</label>
+          <input id="payerPhone" type="tel" inputmode="numeric" placeholder="07xx… (optional)" />
+          <label for="cashNotes">Notes</label>
+          <textarea id="cashNotes" placeholder="optional"></textarea>
+          <button id="btnCash">Collect Cash</button>
+          <div id="cashMsg" class="hint"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Enter Expense</h2>
+      <div class="row">
+        <div>
+          <label for="expCat">Category</label>
+          <select id="expCat">
+            <option value="fuel">Fuel</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="parking">Parking</option>
+            <option value="other">Other</option>
+          </select>
+          <label for="expAmount">Amount (KES)</label>
+          <input id="expAmount" type="number" min="0" placeholder="e.g., 50" />
+          <label for="expNotes">Notes</label>
+          <textarea id="expNotes" placeholder="optional"></textarea>
+          <button id="btnExpense">Save Expense</button>
+          <div id="expMsg" class="hint"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recent Activity</h2>
+      <div class="row">
+        <div>
+          <h3 style="margin:0 0 6px 0;color:var(--sky-600);font-size:16px;font-weight:900">Cash Receipts</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Payer</th><th>Phone</th><th>Amount</th><th>Notes</th></tr></thead>
+            <tbody id="cashBody"></tbody>
+          </table>
+        </div>
+        <div>
+          <h3 style="margin:0 0 6px 0;color:var(--sky-600);font-size:16px;font-weight:900">Expenses</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Category</th><th>Amount</th><th>Notes</th></tr></thead>
+            <tbody id="expBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // --- utils ---
+    const $ = (id)=>document.getElementById(id);
+    const fmt = (n)=> new Intl.NumberFormat('en-KE',{maximumFractionDigits:0}).format(Number(n||0));
+    $('today').textContent = new Date().toLocaleDateString();
+
+    // token helper compatible with rest of app
+    const Token = {
+      get(){
+        return localStorage.getItem('tt_root_token')
+          || localStorage.getItem('tt_admin_token')
+          || localStorage.getItem('auth_token')
+          || '';
+      },
+      header(){
+        const t = Token.get();
+        return t ? { Authorization: `Bearer ${t}` } : {};
+      }
+    };
+
+    function setAuthState(){
+      const t = Token.get();
+      const pill = $('authState');
+      if(t){ pill.textContent = 'Token: present'; pill.classList.add('ok'); }
+      else { pill.textContent = 'Token: missing'; pill.classList.add('warn'); }
+    }
+
+    async function authFetch(url, opts={}){
+      const res = await fetch(url, { ...opts, headers: { 'Content-Type':'application/json', ...(opts.headers||{}), ...Token.header() } });
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const ct = res.headers.get('content-type')||'';
+      return ct.includes('application/json') ? res.json() : res.text();
+    }
+
+    // --- bootstrap whoami (optional) ---
+    async function loadWhoAmI(){
+      try{
+        const me = await authFetch('/api/me');
+        $('whoamiHint').textContent = me?.email ? `Hello, ${me.email}` : 'Ready';
+      }catch(e){
+        $('whoamiHint').textContent = 'Could not load user (login first)';
+      }
+    }
+
+    // --- summary ---
+    async function refreshSummary(){
+      $('sumHint').textContent = 'Refreshing…';
+      try{
+        // Backend should aggregate by day for current rider; adapt path if needed
+        const today = new Date().toISOString().slice(0,10);
+        const s = await authFetch(`/api/boda/summary?date=${today}`);
+        const sum = s?.summary || s || {};
+        const till = Number(sum.till_today || sum.till || 0);
+        const cash = Number(sum.cash_today || sum.cash || 0);
+        const exp  = Number(sum.expenses_today || sum.expenses || 0);
+        $('kpiTill').textContent = fmt(till);
+        $('kpiCash').textContent = fmt(cash);
+        $('kpiExp').textContent  = fmt(exp);
+        $('kpiNet').textContent  = fmt(till + cash - exp);
+        $('sumHint').textContent = '';
+      }catch(e){ $('sumHint').textContent = 'No summary yet'; }
+    }
+
+    // --- lists ---
+    async function refreshCash(){
+      try{
+        const r = await authFetch('/api/boda/cash?limit=20');
+        const rows = Array.isArray(r?.items)? r.items : (Array.isArray(r)? r : []);
+        const tb = $('cashBody'); tb.innerHTML = '';
+        rows.forEach(x=>{
+          const tr = document.createElement('tr');
+          const t = x.created_at || x.time || x.ts;
+          tr.innerHTML = `<td>${t? new Date(t).toLocaleTimeString(): '—'}</td>`+
+                          `<td>${x.payer_name||''}</td>`+
+                          `<td>${x.phone||''}</td>`+
+                          `<td>${fmt(x.amount||0)}</td>`+
+                          `<td>${x.notes||''}</td>`;
+          tb.appendChild(tr);
+        });
+      }catch(e){ /* swallow */ }
+    }
+
+    async function refreshExpenses(){
+      try{
+        const r = await authFetch('/api/boda/expenses?limit=20');
+        const rows = Array.isArray(r?.items)? r.items : (Array.isArray(r)? r : []);
+        const tb = $('expBody'); tb.innerHTML = '';
+        rows.forEach(x=>{
+          const tr = document.createElement('tr');
+          const t = x.created_at || x.time || x.ts;
+          tr.innerHTML = `<td>${t? new Date(t).toLocaleTimeString(): '—'}</td>`+
+                          `<td>${x.category||x.cat||'—'}</td>`+
+                          `<td>${fmt(x.amount||0)}</td>`+
+                          `<td>${x.notes||''}</td>`;
+          tb.appendChild(tr);
+        });
+      }catch(e){ /* swallow */ }
+    }
+
+    // --- actions ---
+    async function collectCash(){
+      const amount = Number(($('cashAmount').value||'').trim());
+      const payer_name = ($('payerName').value||'').trim();
+      const phone = ($('payerPhone').value||'').trim();
+      const notes = ($('cashNotes').value||'').trim();
+      const out = $('cashMsg'); out.textContent = 'Saving…';
+      try{
+        if(!(amount > 0)) throw new Error('Enter amount');
+        await authFetch('/api/boda/cash', { method:'POST', body: JSON.stringify({ amount, payer_name, phone, notes }) });
+        out.textContent = 'Saved ✓'; out.className = 'success';
+        $('cashAmount').value = ''; $('payerName').value=''; $('payerPhone').value=''; $('cashNotes').value='';
+        refreshSummary(); refreshCash();
+      }catch(err){ out.textContent = `Error: ${err.message||err}`; out.className = 'error'; }
+    }
+
+    async function saveExpense(){
+      const category = $('expCat').value;
+      const amount = Number(($('expAmount').value||'').trim());
+      const notes = ($('expNotes').value||'').trim();
+      const out = $('expMsg'); out.textContent = 'Saving…';
+      try{
+        if(!(amount > 0)) throw new Error('Enter amount');
+        await authFetch('/api/boda/expenses', { method:'POST', body: JSON.stringify({ category, amount, notes }) });
+        out.textContent = 'Saved ✓'; out.className = 'success';
+        $('expAmount').value=''; $('expNotes').value='';
+        refreshSummary(); refreshExpenses();
+      }catch(err){ out.textContent = `Error: ${err.message||err}`; out.className = 'error'; }
+    }
+
+    (function main(){
+      setAuthState();
+      loadWhoAmI();
+      refreshSummary(); refreshCash(); refreshExpenses();
+      $('btnCash').addEventListener('click', collectCash);
+      $('btnExpense').addEventListener('click', saveExpense);
+      setInterval(()=>{ refreshSummary(); }, 30000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,5 +1,4 @@
-// server.js — TekeTeke backend (clean scaffold)
-// server.js — TekeTeke backend (dashboards + auth + USSD pool + fees/reports)
+﻿// server.js — TekeTeke backend (dashboards + auth + USSD pool + fees/reports)
 require('dotenv').config();
 
 // ---- Core imports ----
@@ -68,8 +67,8 @@ function getSbFor(req) {
   if (!sb) return null;
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token || token === ADMIN_TOKEN) return sb; // admin token uses admin gates elsewhere
-  // Create a one-off client bound to the token (no session persistence)
+  if (!token || token === ADMIN_TOKEN) return sb; // admin token acts as root elsewhere
+
   const createClient = _supabaseCreateClient;
   const client = createClient
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } })
@@ -389,6 +388,16 @@ app.get('/sacco/sacco.html', (_req, res) => sendPublic(res, path.join('sacco', '
 app.get('/matatu/owner.html', (_req, res) => sendPublic(res, path.join('matatu', 'owner.html')));
 app.get('/conductor/console.html', (_req, res) => sendPublic(res, path.join('conductor', 'console.html')));
 app.get('/auth/role-select.html', (_req, res) => sendPublic(res, path.join('auth', 'role-select.html')));
+
+// Taxi & Boda static pages
+app.get('/taxi/index.html', (_req, res) => sendPublic(res, path.join('taxi', 'index.html')));
+app.get('/taxi/console.html', (_req, res) => sendPublic(res, path.join('taxi', 'index.html'))); // alias
+app.get('/boda/index.html', (_req, res) => sendPublic(res, path.join('boda', 'index.html')));
+app.get('/boda/console.html', (_req, res) => sendPublic(res, path.join('boda', 'index.html'))); // alias
+// nice short paths
+app.get('/taxi', (_req, res) => res.redirect(308, '/taxi/index.html'));
+app.get('/boda', (_req, res) => res.redirect(308, '/boda/index.html'));
+
 // Lightweight aliases for login screen
 app.get(['/login', '/auth/login'], (_req, res) => res.redirect(308, '/auth/login.html'));
 
@@ -1405,6 +1414,76 @@ app.get('/api/sacco/activity', requireUser, async (req, res) => {
 });
 
 // =======================
+// Taxi & Boda minimal endpoints for UI (in-memory store)
+// =======================
+const _mem = {
+  taxi: { cash: [], expenses: [] },
+  boda: { cash: [], expenses: [] },
+};
+function _todayStr(d = new Date()) { return d.toISOString().slice(0, 10); }
+function _isSameDay(iso, day) { return String(iso || '').slice(0, 10) === day; }
+function _mkRow(kind, body) {
+  return {
+    id: randomUUID(),
+    kind,
+    amount: round2(body.amount),
+    name: (body.name || '').trim() || null,
+    phone: (body.phone || '').trim() || null,
+    category: (body.category || '').trim() || null,
+    notes: (body.notes || '').trim() || null,
+    created_at: new Date().toISOString(),
+  };
+}
+function _bindSimpleBook(namespace) {
+  const book = _mem[namespace];
+
+  app.get(`/api/${namespace}/cash`, requireUser, async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10), 1), 200);
+    const day = (req.query.date || _todayStr()).slice(0, 10);
+    const rows = book.cash.filter(r => _isSameDay(r.created_at, day)).slice(-limit).reverse();
+    res.json({ items: rows });
+  });
+
+  app.get(`/api/${namespace}/expenses`, requireUser, async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10), 1), 200);
+    const day = (req.query.date || _todayStr()).slice(0, 10);
+    const rows = book.expenses.filter(r => _isSameDay(r.created_at, day)).slice(-limit).reverse();
+    res.json({ items: rows });
+  });
+
+  app.get(`/api/${namespace}/summary`, requireUser, async (req, res) => {
+    const day = (req.query.date || _todayStr()).slice(0, 10);
+    const cash = book.cash.filter(r => _isSameDay(r.created_at, day)).reduce((a, r) => a + Number(r.amount || 0), 0);
+    const expenses = book.expenses.filter(r => _isSameDay(r.created_at, day)).reduce((a, r) => a + Number(r.amount || 0), 0);
+    res.json({ date: day, cash: round2(cash), expenses: round2(expenses), net: round2(cash - expenses) });
+  });
+
+  app.post(`/api/${namespace}/cash`, requireUser, writeLimiter, async (req, res) => {
+    try {
+      const { amount } = req.body || {};
+      if (!Number.isFinite(Number(amount))) return res.status(422).json({ success: false, error: 'numeric amount required' });
+      const row = _mkRow('CASH', req.body || {});
+      book.cash.push(row);
+      // TODO: persist into Supabase: `${namespace}_cash` table
+      res.json({ success: true, item: row });
+    } catch (e) { res.status(500).json({ success: false, error: sanitizeErr(e) }); }
+  });
+
+  app.post(`/api/${namespace}/expenses`, requireUser, writeLimiter, async (req, res) => {
+    try {
+      const { amount } = req.body || {};
+      if (!Number.isFinite(Number(amount))) return res.status(422).json({ success: false, error: 'numeric amount required' });
+      const row = _mkRow('EXPENSE', req.body || {});
+      book.expenses.push(row);
+      // TODO: persist into Supabase: `${namespace}_expenses` table
+      res.json({ success: true, item: row });
+    } catch (e) { res.status(500).json({ success: false, error: sanitizeErr(e) }); }
+  });
+}
+_bindSimpleBook('taxi');
+_bindSimpleBook('boda');
+
+// =======================
 // Root
 // =======================
 app.get('/', (_req, res) => {
@@ -1424,6 +1503,9 @@ const pageAliases = {
   '/conductor-dashboard.html': '/conductor/console.html',
   '/conductor-dashboard.htm': '/conductor/console.html',
   '/auth/role-select.htm': '/auth/role-select.html',
+  '/taxi.html': '/taxi/index.html',
+  '/boda.html': '/boda/index.html',
+  '/boda-boda.html': '/boda/index.html',
 };
 for (const [from, to] of Object.entries(pageAliases)) {
   app.get(from, (req, res) => res.redirect(308, to));
